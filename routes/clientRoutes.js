@@ -719,6 +719,30 @@ router.put("/:id/sesiones-counter", async (req, res) => {
   }
 });
 
+// ────────────────────────────── Listado por asesor
+router.get("/asesor/:asesorId", async (req, res) => {
+  try {
+    const { asesorId } = req.params;
+
+    // Validar ObjectId
+    const isValid = Types.ObjectId.isValid(String(asesorId));
+    if (!isValid) {
+      return res.status(400).json({ error: "asesorId inválido" });
+    }
+
+    // Buscar clientes del asesor
+    const clientes = await Cliente.find(
+      { asesorId: new Types.ObjectId(asesorId) }
+    ).lean();
+
+    return res.json(clientes);
+  } catch (err) {
+    console.error("GET /clientes/asesor/:asesorId", err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+
 
 
 module.exports = router;
