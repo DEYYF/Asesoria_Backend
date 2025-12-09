@@ -100,9 +100,11 @@ exports.crearPresupuesto = async (req, res) => {
 
 exports.obtenerPresupuestos = async (req, res) => {
   try {
-    const { clienteId } = req.query;
-    const { asesorId } = req.query;
-    const filtros = clienteId ? { clienteId } : { asesorId };
+    const { clienteId, asesorId } = req.query;
+    let filtros = {};
+
+    if (clienteId) filtros.clienteId = clienteId;
+    if (asesorId) filtros.usuarioId = asesorId;
 
     const presupuestos = await Presupuesto.find(filtros)
       .populate("tarifaId")
