@@ -7,27 +7,20 @@ const ejercicioSchema = new mongoose.Schema({
     required: true,
     set: (v) => normalize(v),
   },
-  grupo: String,
-  equipo: String,
-  nivel: String,
-  urlVideo: String,
-  instrucciones: String,
+  grupo: { type: String, default: "" },
+  equipo: { type: String, default: "" },
+  nivel: { type: String, default: "" },
+  urlVideo: { type: String, default: "" },
+  instrucciones: { type: String, default: "" },
 }, { timestamps: true });
 
-
+// Normalizador
+function normalize(str = "") {
+  return str
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .trim()
+    .toLowerCase();
+}
 
 module.exports = mongoose.model("Ejercicio", ejercicioSchema);
-
-
-
-
-ejercicioSchema.index(
-  { createdBy: 1, nombreNormalized: 1 },
-  { unique: true, collation: { locale: 'es', strength: 2 } }
-);
-
-// Middleware para normalizar el nombre antes de guardar
-
-
-const Ejercicio = mongoose.model('Ejercicio', ejercicioSchema);
-module.exports = Ejercicio;
