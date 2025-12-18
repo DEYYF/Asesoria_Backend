@@ -49,6 +49,11 @@ exports.clientLogin = async (req, res) => {
     const { email, password, isFirstLogin } = req.body;
     const Cliente = require('../models/Cliente');
 
+    // Validate email is provided
+    if (!email) {
+      return res.status(400).json({ message: "Email requerido" });
+    }
+
     const cliente = await Cliente.findOne({ email });
 
     if (!cliente) {
@@ -58,7 +63,7 @@ exports.clientLogin = async (req, res) => {
     // Check if cliente has password set - FIRST CHECK
     if (!cliente.password) {
       // If isFirstLogin is true and password provided, set it up
-      if (isFirstLogin && password) {
+      if (isFirstLogin && password && password.length >= 6) {
         const hashedPassword = await bcrypt.hash(password, 10);
         cliente.password = hashedPassword;
         await cliente.save();
@@ -80,6 +85,7 @@ exports.clientLogin = async (req, res) => {
       }
       
       // No password set and not setting one - require password setup
+      // Return 200 (not 400) so frontend can handle it
       return res.status(200).json({ 
         requiresPasswordSetup: true,
         clienteId: cliente._id,
@@ -88,6 +94,10 @@ exports.clientLogin = async (req, res) => {
     }
 
     // Cliente has password - verify it
+    if (!password) {
+      return res.status(400).json({ message: "Contraseña requerida" });
+    }
+
     const isMatch = await bcrypt.compare(password, cliente.password);
     if (!isMatch) {
       return res.status(400).json({ message: "Credenciales incorrectas" });
