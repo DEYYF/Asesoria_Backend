@@ -43,3 +43,45 @@ exports.login = async (req, res) => {
     res.status(500).json({ message: "Error en servidor" });
   }
 };
+
+exports.clientLogin = async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    const Cliente = require('../models/Cliente');
+
+    const cliente = await Cliente.findOne({ email });
+
+    if (!cliente) {
+      return res.status(400).json({ message: "Credenciales incorrectas" });
+    }
+
+    // Check if cliente has password set
+    if (!cliente.password) {
+      return res.status(400).json({ message: "Cuenta no configurada para login. Contacte al administrador." });
+    }
+
+    const isMatch = await bcrypt.compare(password, cliente.password);
+    if (!isMatch) {
+      return res.status(400).json({ message: "Credenciales incorrectas" });
+    }
+
+    const token = jwt.sign(
+      { id: cliente._id, type: 'client' },
+      process.env.JWT_SECRET,
+      { expiresIn: "30d" }
+    );
+
+    // Return client data with userType flag
+    const clienteData = cliente.toObject();
+    delete clienteData.password; // Don't send password to frontend
+    
+    res.json({
+      message: "Login exitoso",
+      token,
+      user: { ...clienteData, userType: 'client' }
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Error en servidor" });
+  }
+};
