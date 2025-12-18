@@ -55,30 +55,31 @@ exports.clientLogin = async (req, res) => {
       return res.status(400).json({ message: "Credenciales incorrectas" });
     }
 
-    // First-time login: client has no password, setting new one
-    if (!cliente.password && isFirstLogin && password) {
-      const hashedPassword = await bcrypt.hash(password, 10);
-      cliente.password = hashedPassword;
-      await cliente.save();
-
-      const token = jwt.sign(
-        { id: cliente._id, type: 'client' },
-        process.env.JWT_SECRET,
-        { expiresIn: "30d" }
-      );
-
-      const clienteData = cliente.toObject();
-      delete clienteData.password;
-      
-      return res.json({
-        message: "Contraseña establecida exitosamente",
-        token,
-        user: { ...clienteData, userType: 'client' }
-      });
-    }
-
-    // Check if cliente has password set
+    // Check if cliente has password set - FIRST CHECK
     if (!cliente.password) {
+      // If isFirstLogin is true and password provided, set it up
+      if (isFirstLogin && password) {
+        const hashedPassword = await bcrypt.hash(password, 10);
+        cliente.password = hashedPassword;
+        await cliente.save();
+
+        const token = jwt.sign(
+          { id: cliente._id, type: 'client' },
+          process.env.JWT_SECRET,
+          { expiresIn: "30d" }
+        );
+
+        const clienteData = cliente.toObject();
+        delete clienteData.password;
+        
+        return res.json({
+          message: "Contraseña establecida exitosamente",
+          token,
+          user: { ...clienteData, userType: 'client' }
+        });
+      }
+      
+      // No password set and not setting one - require password setup
       return res.status(200).json({ 
         requiresPasswordSetup: true,
         clienteId: cliente._id,
@@ -86,6 +87,7 @@ exports.clientLogin = async (req, res) => {
       });
     }
 
+    // Cliente has password - verify it
     const isMatch = await bcrypt.compare(password, cliente.password);
     if (!isMatch) {
       return res.status(400).json({ message: "Credenciales incorrectas" });
