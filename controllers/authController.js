@@ -46,7 +46,7 @@ exports.login = async (req, res) => {
 
 exports.clientLogin = async (req, res) => {
   try {
-    const { email, password } = req.body;
+    const { email, password, isFirstLogin } = req.body;
     const Cliente = require('../models/Cliente');
 
     const cliente = await Cliente.findOne({ email });
@@ -55,9 +55,35 @@ exports.clientLogin = async (req, res) => {
       return res.status(400).json({ message: "Credenciales incorrectas" });
     }
 
+    // First-time login: client has no password, setting new one
+    if (!cliente.password && isFirstLogin && password) {
+      const hashedPassword = await bcrypt.hash(password, 10);
+      cliente.password = hashedPassword;
+      await cliente.save();
+
+      const token = jwt.sign(
+        { id: cliente._id, type: 'client' },
+        process.env.JWT_SECRET,
+        { expiresIn: "30d" }
+      );
+
+      const clienteData = cliente.toObject();
+      delete clienteData.password;
+      
+      return res.json({
+        message: "Contraseña establecida exitosamente",
+        token,
+        user: { ...clienteData, userType: 'client' }
+      });
+    }
+
     // Check if cliente has password set
     if (!cliente.password) {
-      return res.status(400).json({ message: "Cuenta no configurada para login. Contacte al administrador." });
+      return res.status(200).json({ 
+        requiresPasswordSetup: true,
+        clienteId: cliente._id,
+        message: "Primera vez. Establece tu contraseña." 
+      });
     }
 
     const isMatch = await bcrypt.compare(password, cliente.password);
