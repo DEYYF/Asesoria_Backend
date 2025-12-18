@@ -3,6 +3,7 @@ const mongoose = require('mongoose');
 const clienteSchema = new mongoose.Schema({
   nombre: { type: String, required: true },
   email: { type: String, required: true },
+  password: { type: String }, // For client login authentication
   telefono: { type: String, required: true },
   fechaNacimiento: Date,
   edad: Number,
