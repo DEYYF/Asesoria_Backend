@@ -22,12 +22,14 @@ router.post("/enviar", async (req, res) => {
 
     // Fetch user settings if asesorId is provided
     let signature = "";
+    let signatureImageUrl = "";
     let customFrom = "";
     if (asesorId) {
       const Usuario = require("../models/Usuario");
       const user = await Usuario.findById(asesorId).select("settings");
       if (user && user.settings) {
         signature = user.settings.emailSignature || "";
+        signatureImageUrl = user.settings.signatureImageUrl || "";
         customFrom = user.settings.businessEmail || "";
       }
     }
@@ -37,11 +39,22 @@ router.post("/enviar", async (req, res) => {
     let bodyText = text ?? (bodyHtml ? undefined : (mensaje || ""));
 
     // Append signature if exists
-    if (signature) {
+    if (signature || signatureImageUrl) {
       if (bodyHtml) {
-        bodyHtml += `<br><br><div style="color: #666; font-size: 14px; border-top: 1px solid #eee; padding-top: 10px;">${signature.replace(/\n/g, "<br>")}</div>`;
+        let sigHtml = `<br><br><div style="color: #666; font-size: 14px; border-top: 1px solid #eee; padding-top: 10px;">`;
+        if (signatureImageUrl) {
+          sigHtml += `<img src="${signatureImageUrl}" alt="Firma" style="max-width: 200px; max-height: 100px; display: block; margin-bottom: 8px;"><br>`;
+        }
+        if (signature) {
+          sigHtml += signature.replace(/\n/g, "<br>");
+        }
+        sigHtml += `</div>`;
+        bodyHtml += sigHtml;
       } else {
         bodyText += `\n\n--\n${signature}`;
+        if (signatureImageUrl) {
+          bodyText += `\n[Imagen: ${signatureImageUrl}]`;
+        }
       }
     }
 

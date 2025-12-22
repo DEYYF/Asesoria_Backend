@@ -77,6 +77,7 @@ router.get('/:id/settings', authMiddleware, async (req, res) => {
       theme: 'system',
       accentColor: '#007AFF',
       emailSignature: '',
+      signatureImageUrl: '',
       businessEmail: ''
     });
   } catch (err) {
