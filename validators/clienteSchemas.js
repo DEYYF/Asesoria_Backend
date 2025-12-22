@@ -39,6 +39,12 @@ exports.historialProgresoBody = z.object({
   notas: z.string().optional(),
   peso: z.number().optional(),
   grasa: z.number().optional(),
+  grasaCorporal: z.number().optional(),
+  MasaMusculoEsqueletica: z.number().optional(),
+  musculo: z.array(z.object({
+    nombre: z.string(),
+    medida: z.number()
+  })).optional(),
 }).passthrough();
 
 exports.destacadosQuery = z.object({
