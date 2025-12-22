@@ -40,10 +40,14 @@ router.post("/enviar", async (req, res) => {
 
     // Append signature if exists
     if (signature || signatureImageUrl) {
+      const isBase64 = signatureImageUrl && signatureImageUrl.startsWith('iVBORw0KGgo'); // Common start for PNG base64, but we can be more generic
+      const isActuallyBase64 = signatureImageUrl && !signatureImageUrl.startsWith('http') && signatureImageUrl.length > 100;
+
       if (bodyHtml) {
         let sigHtml = `<br><br><div style="color: #666; font-size: 14px; border-top: 1px solid #eee; padding-top: 10px;">`;
         if (signatureImageUrl) {
-          sigHtml += `<img src="${signatureImageUrl}" alt="Firma" style="max-width: 200px; max-height: 100px; display: block; margin-bottom: 8px;"><br>`;
+          const imgSrc = isActuallyBase64 ? 'cid:businessLogo' : signatureImageUrl;
+          sigHtml += `<img src="${imgSrc}" alt="Logo" style="max-width: 200px; max-height: 100px; display: block; margin-bottom: 8px;"><br>`;
         }
         if (signature) {
           sigHtml += signature.replace(/\n/g, "<br>");
@@ -52,9 +56,20 @@ router.post("/enviar", async (req, res) => {
         bodyHtml += sigHtml;
       } else {
         bodyText += `\n\n--\n${signature}`;
-        if (signatureImageUrl) {
+        if (signatureImageUrl && !isActuallyBase64) {
           bodyText += `\n[Imagen: ${signatureImageUrl}]`;
         }
+      }
+
+      // Add CID attachment if it's base64
+      if (isActuallyBase64) {
+        if (!attachments) req.body.attachments = [];
+        const base64Data = signatureImageUrl.replace(/^data:image\/\w+;base64,/, "");
+        req.body.attachments.push({
+          filename: 'logo.png',
+          content: Buffer.from(base64Data, 'base64'),
+          cid: 'businessLogo'
+        });
       }
     }
 
