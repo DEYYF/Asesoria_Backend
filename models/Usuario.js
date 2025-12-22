@@ -24,6 +24,7 @@ const UsuarioSchema = new mongoose.Schema({
     theme: { type: String, default: 'system' },
     accentColor: { type: String, default: '#007AFF' },
     emailSignature: { type: String, default: '' },
+    signatureImageUrl: { type: String, default: null },
     businessEmail: { type: String, default: '' }
   }
 });
