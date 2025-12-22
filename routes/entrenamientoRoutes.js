@@ -228,6 +228,28 @@ router.get("/registros/cliente/:clienteId/ejercicios", async (req, res) => {
   }
 });
 
+// ✅ Get ALL training session records for a client (for Journal/Bitácora)
+router.get("/registros/cliente/:clienteId/sesiones", async (req, res) => {
+  try {
+    const { clienteId } = req.params;
+    
+    if (!mongoose.isValidObjectId(clienteId)) {
+      return res.status(400).json({ error: "clienteId inválido" });
+    }
+    
+    const sessions = await EntrenamientoRegistro.find({ 
+      clienteId: new mongoose.Types.ObjectId(clienteId) 
+    })
+      .sort({ fecha: -1 })
+      .select("fecha ejercicios comentarios semanaNumero diaNombre")
+      .lean();
+    
+    res.json(sessions);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
 // ✅ Historial de un ejercicio específico
 router.get("/registros/cliente/:clienteId/historial", async (req, res) => {
     try {
@@ -286,28 +308,6 @@ router.get("/registros/cliente/:clienteId/historial", async (req, res) => {
     }
 });
 
-// ✅ Get ALL training session records for a client (for Journal/Bitácora)
-router.get("/registros/cliente/:clienteId/sesiones", async (req, res) => {
-  try {
-    const { clienteId } = req.params;
-    
-    if (!mongoose.isValidObjectId(clienteId)) {
-      return res.status(400).json({ error: "clienteId inválido" });
-    }
-    
-    const sessions = await EntrenamientoRegistro.find({ 
-      clienteId: new mongoose.Types.ObjectId(clienteId) 
-    })
-      .sort({ fecha: -1 })
-      .select("fecha ejercicios comentarios semanaNumero diaNombre")
-      .lean();
-    
-    res.json(sessions);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
-});
-
 
 
 // ✅ Heatmap: Medidas corporales (último registro)
@@ -346,6 +346,7 @@ router.get("/registros/cliente/:clienteId/medidas-heatmap", async (req, res) => 
         
         if (targetEntry.peso) result["Peso"] = targetEntry.peso;
         if (targetEntry.grasaCorporal) result["Grasa"] = targetEntry.grasaCorporal;
+        if (targetEntry.MasaMusculoEsqueletica) result["MasaMusculoEsqueletica"] = targetEntry.MasaMusculoEsqueletica;
 
         res.json(result);
     } catch (error) {
