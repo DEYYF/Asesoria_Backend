@@ -17,6 +17,14 @@ const UsuarioSchema = new mongoose.Schema({
       endHour: { type: Number, default: 22 }
     },
     vacationDays: [String]  // Array of ISO dates: ["2024-12-25", "2024-12-26"]
+  },
+  settings: {
+    pushNotifications: { type: Boolean, default: true },
+    emailNotifications: { type: Boolean, default: true },
+    theme: { type: String, default: 'system' },
+    accentColor: { type: String, default: '#007AFF' },
+    emailSignature: { type: String, default: '' },
+    businessEmail: { type: String, default: '' }
   }
 });
 
