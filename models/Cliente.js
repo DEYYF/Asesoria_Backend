@@ -15,6 +15,7 @@ const clienteSchema = new mongoose.Schema({
       fecha: Date,
       peso: Number,
       grasaCorporal: Number,
+      MasaMusculoEsqueletica: Number,
       musculo: [{
         nombre: String,
         medida: Number
