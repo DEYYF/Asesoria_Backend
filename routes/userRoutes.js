@@ -14,7 +14,7 @@ router.get('/me', authMiddleware, (req, res) => {
 router.get('/me/settings', authMiddleware, async (req, res) => {
   try {
     const Usuario = require('../models/Usuario');
-    const user = await Usuario.findById(req.user._id).select('settings');
+    const user = await Usuario.findById(req.user.id).select('settings');
     if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
     res.json(user.settings || {});
   } catch (err) {
@@ -27,7 +27,7 @@ router.put('/me/settings', authMiddleware, async (req, res) => {
   try {
     const Usuario = require('../models/Usuario');
     const user = await Usuario.findByIdAndUpdate(
-      req.user._id,
+      req.user.id,
       { $set: { settings: req.body } },
       { new: true, runValidators: true }
     ).select('settings');
