@@ -20,16 +20,40 @@ router.post("/enviar", async (req, res) => {
     const to = toRaw || email || para || destinatario;
     const subject = (subjectRaw || asunto || "").toString().trim();
 
+    // Fetch user settings if asesorId is provided
+    let signature = "";
+    let customFrom = "";
+    if (asesorId) {
+      const Usuario = require("../models/Usuario");
+      const user = await Usuario.findById(asesorId).select("settings");
+      if (user && user.settings) {
+        signature = user.settings.emailSignature || "";
+        customFrom = user.settings.businessEmail || "";
+      }
+    }
+
     // Prioriza HTML explícito; si no, decide según contenido
-    const bodyHtml = html ?? (typeof mensaje === "string" && mensaje.includes("<") ? mensaje : undefined);
-    const bodyText = text ?? (bodyHtml ? undefined : (mensaje || ""));
+    let bodyHtml = html ?? (typeof mensaje === "string" && mensaje.includes("<") ? mensaje : undefined);
+    let bodyText = text ?? (bodyHtml ? undefined : (mensaje || ""));
+
+    // Append signature if exists
+    if (signature) {
+      if (bodyHtml) {
+        bodyHtml += `<br><br><div style="color: #666; font-size: 14px; border-top: 1px solid #eee; padding-top: 10px;">${signature.replace(/\n/g, "<br>")}</div>`;
+      } else {
+        bodyText += `\n\n--\n${signature}`;
+      }
+    }
 
     if (!to) throw new Error("Falta campo: to/destinatario");
     if (!isEmail(to)) throw new Error("Campo 'to/destinatario' no es un email válido");
     if (!subject) throw new Error("Falta campo: subject/asunto");
 
-    const from = process.env.SMTP_FROM || process.env.SMTP_USER;
-    if (!from) throw new Error("Falta remitente (SMTP_FROM o SMTP_USER)");
+    const defaultFrom = process.env.SMTP_FROM || process.env.SMTP_USER;
+    if (!defaultFrom) throw new Error("Falta remitente (SMTP_FROM o SMTP_USER)");
+
+    // Use corporate email if available, otherwise default
+    const from = customFrom || defaultFrom;
 
     const info = await transporter.sendMail({
       from,
