@@ -141,14 +141,30 @@ io.on('connection', (socket) => {
   socket.on('sendMessage', async (data) => {
     try {
       const { conversationId, text } = data;
+      console.log('sendMessage received:', { conversationId, text, userId: socket.user.userId, role: socket.user.role });
+
       const conversation = await Conversation.findById(conversationId);
       
-      if (!conversation) return;
+      if (!conversation) {
+        console.log('Conversation not found:', conversationId);
+        return;
+      }
+      console.log('Conversation found:', { 
+        id: conversation._id, 
+        asesorId: conversation.asesorId, 
+        clienteId: conversation.clienteId, 
+        recipientAsesorId: conversation.recipientAsesorId 
+      });
 
       // Validate sender is part of conversation
-      if ((conversation.asesorId && conversation.asesorId.toString() !== socket.user.userId) && 
-          (conversation.clienteId && conversation.clienteId.toString() !== socket.user.userId) &&
-          (conversation.recipientAsesorId && conversation.recipientAsesorId.toString() !== socket.user.userId)) {
+      const isAsesor = conversation.asesorId && conversation.asesorId.toString() === socket.user.userId;
+      const isClient = conversation.clienteId && conversation.clienteId.toString() === socket.user.userId;
+      const isRecipientAsesor = conversation.recipientAsesorId && conversation.recipientAsesorId.toString() === socket.user.userId;
+
+      console.log('Participant check:', { isAsesor, isClient, isRecipientAsesor });
+
+      if (!isAsesor && !isClient && !isRecipientAsesor) {
+        console.log('Sender not part of conversation');
         return;
       }
 
@@ -161,6 +177,7 @@ io.on('connection', (socket) => {
       });
 
       await newMessage.save();
+      console.log('Message saved:', newMessage._id);
       
       // Update lastMessageAt
       conversation.lastMessageAt = Date.now();
