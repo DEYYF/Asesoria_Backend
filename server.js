@@ -146,8 +146,9 @@ io.on('connection', (socket) => {
       if (!conversation) return;
 
       // Validate sender is part of conversation
-      if (conversation.asesorId.toString() !== socket.user.userId && 
-          conversation.clienteId.toString() !== socket.user.userId) {
+      if ((conversation.asesorId && conversation.asesorId.toString() !== socket.user.userId) && 
+          (conversation.clienteId && conversation.clienteId.toString() !== socket.user.userId) &&
+          (conversation.recipientAsesorId && conversation.recipientAsesorId.toString() !== socket.user.userId)) {
         return;
       }
 
