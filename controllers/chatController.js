@@ -6,7 +6,7 @@ const Cliente = require('../models/Cliente');
 // Get all conversations for the logged-in user
 exports.getConversations = async (req, res) => {
   try {
-    const userId = req.user.userId;
+    const userId = req.user.id;
 
     const conversations = await Conversation.find({
       $or: [
@@ -30,7 +30,7 @@ exports.getConversations = async (req, res) => {
 exports.getConversationById = async (req, res) => {
   try {
     const { conversationId } = req.params;
-    const userId = req.user.userId;
+    const userId = req.user.id;
 
     const conversation = await Conversation.findById(conversationId)
       .populate('asesorId', 'nombre email')
@@ -58,7 +58,7 @@ exports.getConversationById = async (req, res) => {
 exports.getMessages = async (req, res) => {
   try {
     const { conversationId } = req.params;
-    const userId = req.user.userId;
+    const userId = req.user.id;
     const role = req.user.role;
 
     // Verify access
@@ -86,7 +86,7 @@ exports.getMessages = async (req, res) => {
 exports.findOrCreateConversation = async (req, res) => {
   try {
     const { asesorId, clienteId, recipientAsesorId, type } = req.body;
-    const userId = req.user.userId;
+    const userId = req.user.id;
 
     // Safety: only participants involved can create/find
     const isParticipant = userId === asesorId || userId === clienteId || userId === recipientAsesorId;
@@ -122,10 +122,10 @@ exports.findOrCreateConversation = async (req, res) => {
 // Get available contacts for an advisor
 exports.getContacts = async (req, res) => {
   try {
-    const userId = req.user.userId;
-    const role = req.user.role;
+    const userId = req.user.id;
+    const isClient = req.user.type === 'client';
 
-    if (role !== 'asesor') {
+    if (isClient) {
       return res.status(403).json({ error: 'Only advisors can browse contacts' });
     }
 
