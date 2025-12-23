@@ -161,9 +161,14 @@ io.on('connection', (socket) => {
       conversation.lastMessageAt = Date.now();
       await conversation.save();
 
-      // Emit to BOTH parties
+      // Emit to ALL participants
       io.to(conversation.asesorId.toString()).emit('receiveMessage', newMessage);
-      io.to(conversation.clienteId.toString()).emit('receiveMessage', newMessage);
+      if (conversation.clienteId) {
+        io.to(conversation.clienteId.toString()).emit('receiveMessage', newMessage);
+      }
+      if (conversation.recipientAsesorId) {
+        io.to(conversation.recipientAsesorId.toString()).emit('receiveMessage', newMessage);
+      }
       
     } catch (err) {
       console.error('Socket error:', err);
