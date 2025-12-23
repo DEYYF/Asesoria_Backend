@@ -121,7 +121,11 @@ io.use((socket, next) => {
   
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET || 'devsecret');
-    socket.user = decoded;
+    // Normalize user object for socket logic
+    socket.user = {
+      userId: decoded.id,
+      role: decoded.type === 'client' ? 'cliente' : 'asesor'
+    };
     next();
   } catch (err) {
     next(new Error('Authentication error'));
@@ -162,13 +166,9 @@ io.on('connection', (socket) => {
       await conversation.save();
 
       // Emit to ALL participants
-      io.to(conversation.asesorId.toString()).emit('receiveMessage', newMessage);
-      if (conversation.clienteId) {
-        io.to(conversation.clienteId.toString()).emit('receiveMessage', newMessage);
-      }
-      if (conversation.recipientAsesorId) {
-        io.to(conversation.recipientAsesorId.toString()).emit('receiveMessage', newMessage);
-      }
+      if (conversation.asesorId) io.to(conversation.asesorId.toString()).emit('receiveMessage', newMessage);
+      if (conversation.clienteId) io.to(conversation.clienteId.toString()).emit('receiveMessage', newMessage);
+      if (conversation.recipientAsesorId) io.to(conversation.recipientAsesorId.toString()).emit('receiveMessage', newMessage);
       
     } catch (err) {
       console.error('Socket error:', err);

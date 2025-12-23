@@ -2,6 +2,7 @@ const Conversation = require('../models/Conversation');
 const Message = require('../models/Message');
 const Usuario = require('../models/Usuario');
 const Cliente = require('../models/Cliente');
+const { Types } = require('mongoose');
 
 // Get all conversations for the logged-in user
 exports.getConversations = async (req, res) => {
@@ -125,21 +126,30 @@ exports.getContacts = async (req, res) => {
     const userId = req.user.id;
     const isClient = req.user.type === 'client';
 
+    console.log('[getContacts] Debug:', { userId, isClient, reqUser: req.user });
+
     if (isClient) {
       return res.status(403).json({ error: 'Only advisors can browse contacts' });
     }
 
     // 1. Get assigned clients
-    const clients = await Cliente.find({ asesorId: userId }, 'nombre email _id');
+    const clients = await Cliente.find({ 
+      asesorId: Types.ObjectId.isValid(userId) ? new Types.ObjectId(userId) : userId 
+    }, 'nombre email _id');
+    console.log('[getContacts] Clients found:', clients.length);
     
     // 2. Get other advisors
-    const advisors = await Usuario.find({ _id: { $ne: userId } }, 'nombre email _id');
+    const advisors = await Usuario.find({ 
+      _id: { $ne: Types.ObjectId.isValid(userId) ? new Types.ObjectId(userId) : userId } 
+    }, 'nombre email _id');
+    console.log('[getContacts] Advisors found:', advisors.length);
 
     res.json({
       clients,
       advisors
     });
   } catch (error) {
+    console.error('[getContacts] Error:', error);
     res.status(500).json({ error: error.message });
   }
 };
