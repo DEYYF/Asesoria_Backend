@@ -89,6 +89,7 @@ app.use('/api/tareas', require('./routes/TareasRoutes'));
 app.use("/api/tarifas", require("./routes/tarifas"));
 app.use("/api/extras", require("./routes/extras"));
 app.use("/api/presupuestos", require("./routes/presupuestos"));
+app.use('/api/chat', require('./routes/chatRoutes'));
 
 
 /* 404 explícito */
@@ -102,13 +103,85 @@ app.use((err, _req, res, _next) => {
   res.status(err.status || 500).json({ error: err.message || "Internal error" });
 });
 
+const http = require('http');
+const { Server } = require('socket.io');
+const jwt = require('jsonwebtoken');
+const Conversation = require('./models/Conversation');
+const Message = require('./models/Message');
+
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: { origin: true, credentials: true }
+});
+
+// Socket.io Middleware for Auth
+io.use((socket, next) => {
+  const token = socket.handshake.auth.token || socket.handshake.query.token;
+  if (!token) return next(new Error('Authentication error'));
+  
+  try {
+    const decoded = jwt.verify(token, process.env.JWT_SECRET || 'devsecret');
+    socket.user = decoded;
+    next();
+  } catch (err) {
+    next(new Error('Authentication error'));
+  }
+});
+
+io.on('connection', (socket) => {
+  console.log(`User connected: ${socket.user.userId}`);
+  
+  // Join a room based on userId to receive private events
+  socket.join(socket.user.userId);
+
+  socket.on('sendMessage', async (data) => {
+    try {
+      const { conversationId, text } = data;
+      const conversation = await Conversation.findById(conversationId);
+      
+      if (!conversation) return;
+
+      // Validate sender is part of conversation
+      if (conversation.asesorId.toString() !== socket.user.userId && 
+          conversation.clienteId.toString() !== socket.user.userId) {
+        return;
+      }
+
+      const senderType = socket.user.role === 'asesor' ? 'ASESOR' : 'CLIENTE';
+      const newMessage = new Message({
+        conversationId,
+        senderType,
+        senderId: socket.user.userId,
+        text
+      });
+
+      await newMessage.save();
+      
+      // Update lastMessageAt
+      conversation.lastMessageAt = Date.now();
+      await conversation.save();
+
+      // Emit to BOTH parties
+      io.to(conversation.asesorId.toString()).emit('receiveMessage', newMessage);
+      io.to(conversation.clienteId.toString()).emit('receiveMessage', newMessage);
+      
+    } catch (err) {
+      console.error('Socket error:', err);
+    }
+  });
+
+  socket.on('disconnect', () => {
+    console.log(`User disconnected: ${socket.user.userId}`);
+  });
+});
+
 /* ───────── DB + Arranque ───────── */
 mongoose.connect(process.env.MONGO_URI, {
   useNewUrlParser: true,
   useUnifiedTopology: true
 }).then(() => {
   console.log('Conectado a MongoDB');
-  app.listen(process.env.PORT || 4000, () => console.log('Servidor iniciado'));
+  server.listen(process.env.PORT || 4000, () => console.log('Servidor iniciado con Socket.io'));
 }).catch(err => console.error(err));
 
 /* ───────── CRON (tus recordatorios) ───────── */
