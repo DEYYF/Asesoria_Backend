@@ -24,8 +24,12 @@ const UsuarioSchema = new mongoose.Schema({
     theme: { type: String, default: 'system' },
     accentColor: { type: String, default: '#007AFF' },
     emailSignature: { type: String, default: '' },
-    signatureImageUrl: { type: String, default: null },
-    businessEmail: { type: String, default: '' }
+    signatureImageUrl: { type: String, default: '' },
+    businessEmail: { type: String, default: '' },
+    weightFrequency: { type: String, default: 'weekly' },
+    fatFrequency: { type: String, default: 'weekly' },
+    measuresFrequency: { type: String, default: 'monthly' },
+    muscleFrequency: { type: String, default: 'monthly' }
   }
 });
 
