@@ -5,6 +5,8 @@ const ConversationSchema = new mongoose.Schema({
   asesorId: { type: mongoose.Schema.Types.ObjectId, ref: 'Usuario', required: true },
   clienteId: { type: mongoose.Schema.Types.ObjectId, ref: 'Cliente' },
   recipientAsesorId: { type: mongoose.Schema.Types.ObjectId, ref: 'Usuario' },
+  lastMessage: { type: String },
+  unreadCounts: { type: Map, of: Number, default: {} },
   lastMessageAt: { type: Date, default: Date.now }
 }, { timestamps: true });
 
