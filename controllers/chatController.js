@@ -153,3 +153,55 @@ exports.getContacts = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+// Get total unread count for the user
+exports.getUnreadCount = async (req, res) => {
+  try {
+    const userId = req.user.id;
+    
+    // Find all conversations where the user is a participant
+    const conversations = await Conversation.find({
+      $or: [
+        { asesorId: userId },
+        { clienteId: userId },
+        { recipientAsesorId: userId }
+      ]
+    });
+
+    let totalUnread = 0;
+    
+    conversations.forEach(conv => {
+      if (conv.unreadCounts && conv.unreadCounts.has(userId)) {
+        totalUnread += conv.unreadCounts.get(userId);
+      }
+    });
+
+    res.json({ count: totalUnread });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Mark conversation as read for the current user
+exports.markAsRead = async (req, res) => {
+  try {
+    const { conversationId } = req.params;
+    const userId = req.user.id; // user ID from token
+
+    const conversation = await Conversation.findById(conversationId);
+    if (!conversation) return res.status(404).json({ error: 'Conversation not found' });
+
+    // Initialize or get map
+    if (!conversation.unreadCounts) {
+      conversation.unreadCounts = new Map();
+    }
+
+    // Reset count for this user
+    conversation.unreadCounts.set(userId, 0);
+
+    await conversation.save();
+    res.json({ success: true });
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+};

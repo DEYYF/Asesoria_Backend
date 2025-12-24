@@ -179,8 +179,33 @@ io.on('connection', (socket) => {
       await newMessage.save();
       console.log('Message saved:', newMessage._id);
       
-      // Update lastMessageAt
+      // Update lastMessage and unreadCounts
+      conversation.lastMessage = text;
       conversation.lastMessageAt = Date.now();
+
+      // Initialize unreadCounts if missing
+      if (!conversation.unreadCounts) {
+        conversation.unreadCounts = new Map();
+      }
+
+      // Identify recipients (everyone involved who is NOT the sender)
+      const participants = [
+        conversation.asesorId?.toString(),
+        conversation.clienteId?.toString(),
+        conversation.recipientAsesorId?.toString()
+      ].filter(id => id && id !== socket.user.userId);
+
+      // Increment unread count for each recipient
+      participants.forEach(recipientId => {
+        const currentCount = conversation.unreadCounts.get(recipientId) || 0;
+        conversation.unreadCounts.set(recipientId, currentCount + 1);
+      });
+
+      console.log('Updating conversation:', { 
+        lastMessage: text, 
+        unreadCounts: Object.fromEntries(conversation.unreadCounts) 
+      });
+
       await conversation.save();
 
       // Emit to ALL participants
