@@ -29,7 +29,14 @@ const UsuarioSchema = new mongoose.Schema({
     weightFrequency: { type: String, default: 'weekly' },
     fatFrequency: { type: String, default: 'weekly' },
     measuresFrequency: { type: String, default: 'monthly' },
-    muscleFrequency: { type: String, default: 'monthly' }
+    muscleFrequency: { type: String, default: 'monthly' },
+    enabledChat: { type: Boolean, default: true },
+    enabledEmail: { type: Boolean, default: true },
+    enabledProgressFrequencies: { type: Boolean, default: true },
+    enabledTemplateManagement: { type: Boolean, default: true },
+    enabledTrainingLog: { type: Boolean, default: true },
+    enabledFoodScanner: { type: Boolean, default: true },
+    enabledAutomation: { type: Boolean, default: true }
   }
 });
 

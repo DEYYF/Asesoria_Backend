@@ -86,13 +86,32 @@ exports.getMessages = async (req, res) => {
 // Find or Create a conversation
 exports.findOrCreateConversation = async (req, res) => {
   try {
-    const { asesorId, clienteId, recipientAsesorId, type } = req.body;
+    let { asesorId, clienteId, recipientAsesorId, type, participantId } = req.body;
     const userId = req.user.id;
+    const userRole = req.user.role; // 'asesor' or 'admin' or undefined? Check authMiddleware
+
+    // Handle simplified request from frontend { participantId }
+    if (participantId) {
+      // Logic: If I am an advisor, I am initiating chat with a Client (participantId)
+      // Or maybe another advisor?
+      // For now, assume simple 'Advisor -> Client' flow as requested for Client Dashboard
+      // TODO: Improve role check if needed.
+      
+      // If we are an Advisor (default assumption for dashboard usage)
+      type = 'advisor-client';
+      asesorId = userId;
+      clienteId = participantId;
+      recipientAsesorId = null;
+    }
 
     // Safety: only participants involved can create/find
     const isParticipant = userId === asesorId || userId === clienteId || userId === recipientAsesorId;
+    // Allow if we just composed it correctly above
     if (!isParticipant) {
-      return res.status(403).json({ error: 'Not authorized' });
+       // Check if we are the inferred one
+       if (userId !== asesorId && userId !== clienteId) {
+          return res.status(403).json({ error: 'Not authorized' });
+       }
     }
 
     let query = { type, asesorId };

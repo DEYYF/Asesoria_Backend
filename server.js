@@ -77,6 +77,7 @@ app.use('/api/entrenamientos', require('./routes/entrenamientoRoutes'));
 app.use('/api/ejercicios', require('./routes/ejerciciosRoutes'));
 app.use('/api/auth', require('./routes/authRoutes'));
 app.use('/api/usuarios', require('./routes/userRoutes'));
+app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/dashboard', require('./routes/dashboardRoutes'));
 app.use('/api/dietas', require('./routes/dietas'));
 app.use('/api/clientes', require('./routes/clientRoutes'));
@@ -90,6 +91,8 @@ app.use("/api/tarifas", require("./routes/tarifas"));
 app.use("/api/extras", require("./routes/extras"));
 app.use("/api/presupuestos", require("./routes/presupuestos"));
 app.use('/api/chat', require('./routes/chatRoutes'));
+app.use('/api/templates', require('./routes/templateRoutes'));
+app.use('/api/automations', require('./routes/automationRoutes'));
 
 
 /* 404 explícito */
@@ -235,9 +238,13 @@ mongoose.connect(process.env.MONGO_URI, {
 /* ───────── CRON (tus recordatorios) ───────── */
 const cron = require("node-cron");
 const { processReminders, sendDailySummary } = require("./utils/notifier");
+const { processScheduledAutomations } = require("./utils/automationManager");
 
-// Recordatorios cada 15 min
-cron.schedule("*/15 * * * *", () => processReminders());
+// Recordatorios y Automatizaciones cada 5 min
+cron.schedule("*/5 * * * *", () => {
+  processReminders();
+  processScheduledAutomations();
+});
 
 // Resumen diario 08:00 Europe/Madrid
 cron.schedule("0 8 * * *", () => sendDailySummary(), { timezone: "Europe/Madrid" });

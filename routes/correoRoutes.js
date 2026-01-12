@@ -1,6 +1,7 @@
 const express = require("express");
 const router = express.Router();
 const transporter = require("../services/mailer");
+const CorreoLog = require("../models/CorreoLog");
 
 // util min
 const isEmail = (v) => typeof v === "string" && /\S+@\S+\.\S+/.test(v);
@@ -92,17 +93,68 @@ router.post("/enviar", async (req, res) => {
       ...(bcc ? { bcc } : {}),
       ...(bodyHtml ? { html: bodyHtml } : { text: bodyText || "" }),
       attachments, // Pasamos los adjuntos a nodemailer
-      // Puedes adjuntar metadatos en headers si quieres rastreo:
       headers: {
         "X-Asesor-Id": asesorId ?? "",
         "X-Cliente-Id": clienteId ?? "",
       },
     });
 
+    // ARCHIVAR EN LOG
+    try {
+      if (asesorId) {
+        await CorreoLog.create({
+          emisorId: asesorId,
+          clienteId: clienteId || null,
+          destinatario: to,
+          asunto: subject,
+          mensaje: bodyText,
+          html: bodyHtml,
+          estado: 'Enviado',
+          attachments: (attachments || []).map(a => ({
+            filename: a.filename || 'adjunto',
+            cid: a.cid || null
+          }))
+        });
+      }
+    } catch (logErr) {
+      console.error("[correoRoutes] Error al guardar log:", logErr);
+    }
+
     return res.json({ ok: true, messageId: info.messageId });
   } catch (err) {
     console.error("[correoRoutes] Error:", err?.message || err);
     return res.status(400).json({ ok: false, error: String(err?.message || err) });
+  }
+});
+
+// Obtener historial de correos de un asesor
+router.get("/historial/:asesorId", async (req, res) => {
+  try {
+    const { asesorId } = req.params;
+    const { clienteId, limit = 50, page = 1 } = req.query;
+
+    const query = { emisorId: asesorId };
+    if (clienteId) query.clienteId = clienteId;
+
+    const logs = await CorreoLog.find(query)
+      .sort({ fecha: -1 })
+      .skip((page - 1) * limit)
+      .limit(Number(limit))
+      .populate('clienteId', 'nombre email');
+
+    const total = await CorreoLog.countDocuments(query);
+
+    res.json({
+      ok: true,
+      data: logs,
+      pagination: {
+        total,
+        page: Number(page),
+        pages: Math.ceil(total / limit)
+      }
+    });
+  } catch (err) {
+    res.status(500).json({ ok: false, error: err.message });
   }
 });
 
