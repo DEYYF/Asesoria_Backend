@@ -6,6 +6,7 @@ const Cita = require("../models/Cita");
 const { Types } = require("mongoose");
 const router = express.Router();
 const { logMovimiento } = require('../utils/logMovimiento');
+const { triggerAutomations } = require('../utils/automationManager');
 const { z } = require("zod");
 const Presupuesto = require("../models/Presuspuesto");
 const Tarifa = require("../models/Tarifa");
@@ -49,6 +50,12 @@ router.post("/", async (req, res) => {
     req.body.asesorId = req.body.asesorId || cliente.asesorId;
     req.body.tipo = "CREAR";
     await logMovimiento(req, `Cliente creado: ${cliente.nombre}`);
+
+    // Automations
+    await triggerAutomations('CLIENT_REGISTERED', {
+      advisorId: req.body.asesorId,
+      clientId: cliente._id
+    });
   } catch (err) {
     res.status(400).json({ error: err.message });
   }

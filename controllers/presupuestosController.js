@@ -1,6 +1,7 @@
 const Presupuesto = require("../models/Presuspuesto");
 const Tarifa = require("../models/Tarifa");
 const Extra = require("../models/Extra");
+const { triggerAutomations } = require("../utils/automationManager");
 
 exports.crearPresupuesto = async (req, res) => {
   try {
@@ -89,6 +90,16 @@ exports.crearPresupuesto = async (req, res) => {
         presupuesto.estado = estadoInicial;
         await presupuesto.save();
       }
+    }
+
+    // Automations trigger
+    if (presupuesto.estado !== 'borrador') {
+      await triggerAutomations('BUDGET_CREATED', {
+        advisorId: usuarioId,
+        clientId: clienteId,
+        budgetId: presupuesto._id,
+        email: emailCliente
+      });
     }
 
     res.status(201).json(presupuesto);

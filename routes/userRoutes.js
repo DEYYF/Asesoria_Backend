@@ -61,6 +61,26 @@ router.get('/:id/calendar-settings', authMiddleware, async (req, res) => {
   }
 });
 
+// Update calendar settings
+router.put('/:id/calendar-settings', authMiddleware, async (req, res) => {
+  try {
+    const Usuario = require('../models/Usuario');
+    const user = await Usuario.findByIdAndUpdate(
+      req.params.id,
+      { $set: { calendarSettings: req.body } },
+      { new: true, runValidators: true }
+    ).select('calendarSettings');
+    
+    if (!user) {
+      return res.status(404).json({ error: 'Usuario no encontrado' });
+    }
+    
+    res.json(user.calendarSettings);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Get full user settings
 router.get('/:id/settings', authMiddleware, async (req, res) => {
   try {

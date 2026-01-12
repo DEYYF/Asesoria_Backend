@@ -12,6 +12,7 @@ const {
   bySlotQuerySchema,
 } = require("../validators/citaSchemas");
 const { sendEmail } = require("../utils/notifier");
+const { triggerAutomations } = require("../utils/automationManager");
 
 const {
   createTarea,
@@ -21,24 +22,47 @@ const {
 } = require("../utils/tareas");
 
 // Listado por mes YYYY-MM
+// Listado por mes YYYY-MM
 router.get("/", auth, async (req, res) => {
   try {
-    const rawId = req.user?._id || req.user?.id || req.query?.asesorId || null;
-    const asesorFilter = rawId
-      ? {
-          asesorId: Types.ObjectId.isValid(String(rawId))
-            ? new Types.ObjectId(String(rawId))
-            : String(rawId),
-        }
-      : {};
+    const isClient = req.user.role === 'client';
     const month = String(req.query?.month || "");
-    // si viene '2025-09'
-    let q = { ...asesorFilter };
-    if (month && /^\d{4}-\d{2}$/.test(month)) {
-      q.date = { $regex: `^${month}` }; // empieza por 'YYYY-MM'
+    
+    let q = {};
+    
+    if (isClient) {
+      // Clients only see their own appointments
+      q.clienteId = req.user._id;
+    } else {
+      // Advisors see their own appointments (or filtered by query)
+      const rawId = req.query?.asesorId || req.user._id; 
+      if (rawId) {
+        q.asesorId = Types.ObjectId.isValid(String(rawId))
+            ? new Types.ObjectId(String(rawId))
+            : String(rawId);
+      }
     }
-    const items = await Cita.find(q).sort({ date: 1, hora: 1 }).lean();
-    res.json(items);
+
+    // Filter by month if provided 'YYYY-MM'
+    if (month && /^\d{4}-\d{2}$/.test(month)) {
+      q.date = { $regex: `^${month}` }; 
+    }
+    
+    const items = await Cita.find(q)
+      .sort({ date: 1, hora: 1 })
+      .populate('clienteId', 'nombre') // Populate name
+      .lean();
+
+    // Remap to flatten structure if needed, or frontend handles it.
+    // Frontend expects cita['clienteNombre'].
+    // .lean() means clienteId will be an object { _id: ..., nombre: ... }
+    const mappedItems = items.map(i => ({
+      ...i,
+      clienteNombre: i.clienteId ? i.clienteId.nombre : null,
+      clienteId: i.clienteId ? i.clienteId._id : null
+    }));
+
+    res.json(mappedItems);
   } catch (e) {
     console.error("GET /citas", e);
     res.status(500).json({ message: "No se pudo cargar el calendario" });
@@ -82,6 +106,13 @@ router.post("/", auth, async (req, res) => {
       origin: "cita",
       clientId: clienteId || undefined,
       metadata: { citaId: cita._id.toString() },
+    });
+
+    // Automations trigger
+    await triggerAutomations('APPOINTMENT_CREATED', {
+      advisorId: asesorId,
+      clientId: clienteId,
+      appointmentId: cita._id
     });
 
     const cliente = clienteId ? await Cliente.findById(clienteId).lean() : null;
