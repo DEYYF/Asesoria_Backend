@@ -1,6 +1,7 @@
 const Presupuesto = require("../models/Presuspuesto");
 const Tarifa = require("../models/Tarifa");
 const Extra = require("../models/Extra");
+const Movimiento = require("../models/Movimiento");
 const { triggerAutomations } = require("../utils/automationManager");
 
 exports.crearPresupuesto = async (req, res) => {
@@ -92,13 +93,17 @@ exports.crearPresupuesto = async (req, res) => {
       }
     }
 
-    // Automations trigger
-    if (presupuesto.estado !== 'borrador') {
-      await triggerAutomations('BUDGET_CREATED', {
-        advisorId: usuarioId,
-        clientId: clienteId,
-        budgetId: presupuesto._id,
-        email: emailCliente
+    // AUTOMATION: Create financial movement if PAID
+    if (presupuesto.estado === "pagado") {
+      await Movimiento.create({
+        asesorId: usuarioId,
+        descripcion: `Presupuesto Pagado - ${presupuesto.nombreCliente || "Cliente"}`,
+        monto: total,
+        tipoMovimiento: "INGRESO",
+        categoria: "Suscripción",
+        clienteId: clienteId || undefined,
+        presupuestoId: presupuesto._id,
+        Tipo: "FINANZAS"
       });
     }
 
@@ -207,6 +212,24 @@ exports.actualizarPresupuesto = async (req, res) => {
           tarifaId: presupuesto.tarifaId ? presupuesto.tarifaId._id : undefined,
         });
         console.log(`Cliente ${presupuesto.clienteId} actualizado por presupuesto ${presupuesto._id} (${estado})`);
+      }
+
+      // AUTOMATION: Create financial movement if PAID
+      if (estado === "pagado") {
+        // Check if movement already exists to avoid duplicates (optional but good)
+        const exists = await Movimiento.findOne({ presupuestoId: presupuesto._id, tipoMovimiento: 'INGRESO' });
+        if (!exists) {
+          await Movimiento.create({
+            asesorId: presupuesto.usuarioId,
+            descripcion: `Pago Recibido - ${presupuesto.nombreCliente || (presupuesto.clienteId ? "Cliente" : "Externo")}`,
+            monto: presupuesto.total,
+            tipoMovimiento: "INGRESO",
+            categoria: "Suscripción",
+            clienteId: presupuesto.clienteId,
+            presupuestoId: presupuesto._id,
+            Tipo: "FINANZAS"
+          });
+        }
       }
 
       return res.json(presupuesto);

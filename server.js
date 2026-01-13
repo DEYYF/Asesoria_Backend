@@ -32,36 +32,32 @@ app.use(morgan("dev"));
 if (process.env.NODE_ENV === 'production') {
   const apiLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 1000, // Por usuario autenticado
+    max: 1000,
     standardHeaders: true,
     legacyHeaders: false,
-    skipSuccessfulRequests: false,
-    // Usar userId del token JWT en lugar de IP
+    validate: { xForwardedForHeader: false },
     keyGenerator: (req) => {
-      // Intentar extraer userId del token
       const token = req.headers.authorization?.split(' ')[1];
       if (token) {
         try {
           const jwt = require('jsonwebtoken');
           const decoded = jwt.verify(token, process.env.JWT_SECRET);
-          return `user_${decoded.userId}`; // Límite por usuario
+          return `user_${decoded.userId}`;
         } catch (err) {
-          // Token inválido, usar IP
           return req.ip;
         }
       }
-      return req.ip; // Sin token, usar IP
+      return req.ip;
     },
   });
   app.use("/api", apiLimiter);
 
-  // Rate limit más estricto para auth (anti-bruteforce) - por IP
   const authLimiter = rateLimit({
     windowMs: 10 * 60 * 1000,
-    max: 50, // Por IP para prevenir ataques
+    max: 50,
     standardHeaders: true,
     legacyHeaders: false,
-    skipFailedRequests: false,
+    validate: { xForwardedForHeader: false },
     message: { error: 'Demasiados intentos de login. Intenta de nuevo más tarde.' }
   });
   app.use("/api/auth", authLimiter);
@@ -93,6 +89,7 @@ app.use("/api/presupuestos", require("./routes/presupuestos"));
 app.use('/api/chat', require('./routes/chatRoutes'));
 app.use('/api/templates', require('./routes/templateRoutes'));
 app.use('/api/automations', require('./routes/automationRoutes'));
+app.use('/api/finanzas', require('./routes/finanzasRoutes'));
 
 
 /* 404 explícito */
