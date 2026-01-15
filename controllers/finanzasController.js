@@ -116,3 +116,95 @@ exports.eliminarMovimiento = async (req, res) => {
         res.status(500).json({ message: error.message });
     }
 };
+
+exports.obtenerControlPagos = async (req, res) => {
+    try {
+        const { asesorId } = req.query;
+        if (!asesorId) return res.status(400).json({ message: 'asesorId es requerido' });
+
+        const Cliente = require('../models/Cliente');
+        const clientes = await Cliente.find({ asesorId, estado: 'Activo' })
+            .select('nombre email fechaFin presupuestoActivo')
+            .populate('presupuestoActivo', 'estado total createdAt');
+
+        const now = new Date();
+        const results = clientes.map(c => {
+            let status = 'PENDIENTE'; // Default if no active budget or not paid
+            
+            if (c.presupuestoActivo && c.presupuestoActivo.estado === 'pagado') {
+                if (c.fechaFin && new Date(c.fechaFin) > now) {
+                    status = 'AL_DIA';
+                } else if (c.fechaFin) {
+                    status = 'EXPIRADO';
+                }
+            } else if (c.presupuestoActivo && c.presupuestoActivo.estado === 'aceptado') {
+                status = 'ESPERANDO_PAGO';
+            }
+
+            return {
+                id: c._id,
+                nombre: c.nombre,
+                email: c.email,
+                fechaFin: c.fechaFin,
+                status,
+                presupuestoId: c.presupuestoActivo ? c.presupuestoActivo._id : null
+            };
+        });
+
+        res.json(results);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+exports.obtenerHistoricoGrafico = async (req, res) => {
+    try {
+        const { asesorId } = req.query;
+        if (!asesorId) return res.status(400).json({ message: 'asesorId es requerido' });
+
+        const monthsToFetch = 6;
+        const result = [];
+        const now = new Date();
+
+        for (let i = monthsToFetch - 1; i >= 0; i--) {
+            const date = new Date(now.getFullYear(), now.getMonth() - i, 1);
+            const startOfMonth = new Date(date.getFullYear(), date.getMonth(), 1);
+            const endOfMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59);
+
+            const movements = await Movimiento.aggregate([
+                {
+                    $match: {
+                        asesorId: new mongoose.Types.ObjectId(asesorId),
+                        tipoMovimiento: { $in: ['INGRESO', 'GASTO'] },
+                        fecha: { $gte: startOfMonth, $lte: endOfMonth }
+                    }
+                },
+                {
+                    $group: {
+                        _id: '$tipoMovimiento',
+                        total: { $sum: '$monto' }
+                    }
+                }
+            ]);
+
+            let ingresos = 0;
+            let gastos = 0;
+            movements.forEach(m => {
+                if (m._id === 'INGRESO') ingresos = m.total;
+                if (m._id === 'GASTO') gastos = m.total;
+            });
+
+            const monthNames = ["Ene", "Feb", "Mar", "Abr", "May", "Jun", "Jul", "Ago", "Sep", "Oct", "Nov", "Dic"];
+            result.push({
+                mes: monthNames[startOfMonth.getMonth()],
+                ingresos,
+                gastos,
+                balance: ingresos - gastos
+            });
+        }
+
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};

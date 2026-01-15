@@ -11,6 +11,17 @@ router.post("/", async (req, res) => {
     req.body.asesorid = req.user?._id || req.body.asesorid; // para logMovimiento
     req.body.tipo = 'CREAR';
     await logMovimiento(`Entrenamiento creado: ${doc.titulo}`, req);
+    
+    // Automation: WORKOUT_ASSIGNED
+    if (doc.asesorid && doc.clienteId) {
+        const { triggerAutomations } = require("../utils/automationManager");
+        await triggerAutomations('WORKOUT_ASSIGNED', {
+            advisorId: doc.asesorid,
+            clientId: doc.clienteId,
+            data: { workoutId: doc._id }
+        });
+    }
+    
     res.status(201).json(doc);
   } catch (error) {
     res.status(400).json({ error: error.message });
@@ -183,6 +194,20 @@ const EntrenamientoRegistro = require("../models/EntrenamientoRegistro");
 router.post("/registros", async (req, res) => {
   try {
     const doc = await EntrenamientoRegistro.create(req.body);
+    
+    // Automation: WORKOUT_COMPLETED
+    if (doc.clienteId) {
+      const { triggerAutomations } = require("../utils/automationManager");
+      const entrenamiento = await Entrenamiento.findById(doc.entrenamientoId).select('asesorid').lean();
+      if (entrenamiento && entrenamiento.asesorid) {
+        await triggerAutomations('WORKOUT_COMPLETED', {
+          advisorId: entrenamiento.asesorid,
+          clientId: doc.clienteId,
+          data: { registroId: doc._id, entrenamientoId: doc.entrenamientoId }
+        });
+      }
+    }
+    
     res.status(201).json(doc);
   } catch (error) {
     res.status(400).json({ error: error.message });

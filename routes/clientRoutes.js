@@ -471,6 +471,13 @@ router.put("/:id/historial", async (req, res) => {
     req.body.tipo = "PROGRESO";
     await logMovimiento(req, `Progreso añadido: ${cliente.nombre}`);
 
+    // Automation Trigger
+    await triggerAutomations('PROGRESS_RECORDED', {
+      advisorId: cliente.asesorId,
+      clientId: cliente._id,
+      data: { progressEntry: req.body }
+    });
+
     res.json(cliente);
   } catch (err) {
     res.status(400).json({ error: err.message });
