@@ -230,6 +230,30 @@ exports.actualizarPresupuesto = async (req, res) => {
             Tipo: "FINANZAS"
           });
         }
+        
+        // Automation Trigger
+        await triggerAutomations('BUDGET_PAID', {
+          advisorId: presupuesto.usuarioId,
+          clientId: presupuesto.clienteId,
+          budgetId: presupuesto._id,
+          email: presupuesto.emailCliente
+        });
+      } else if (estado === "rechazado") {
+          // Automation Trigger
+          await triggerAutomations('BUDGET_REJECTED', {
+            advisorId: presupuesto.usuarioId,
+            clientId: presupuesto.clienteId,
+            budgetId: presupuesto._id,
+            email: presupuesto.emailCliente
+          });
+      } else if (estado === "aceptado") {
+          // Automation Trigger (just in case it wasn't triggered elsewhere, usually handled on creation if accepted immediately, but this covers updates)
+          await triggerAutomations('BUDGET_ACCEPTED', {
+            advisorId: presupuesto.usuarioId,
+            clientId: presupuesto.clienteId,
+            budgetId: presupuesto._id,
+            email: presupuesto.emailCliente
+          });
       }
 
       return res.json(presupuesto);

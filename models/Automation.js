@@ -12,7 +12,21 @@ const AutomationSchema = new mongoose.Schema({
   trigger: { 
     type: String, 
     required: false,
-    enum: ['CLIENT_REGISTERED', 'BUDGET_CREATED', 'APPOINTMENT_CREATED', 'APPOINTMENT_MISSED', 'BUDGET_ACCEPTED']
+    enum: [
+      'CLIENT_REGISTERED', 
+      'BUDGET_CREATED', 
+      'APPOINTMENT_CREATED', 
+      'APPOINTMENT_MISSED', 
+      'BUDGET_ACCEPTED',
+      'BUDGET_REJECTED',
+      'BUDGET_PAID',
+      'DIET_ASSIGNED',
+      'WORKOUT_ASSIGNED',
+      'APPOINTMENT_CONFIRMED',
+      'APPOINTMENT_CANCELLED',
+      'PROGRESS_RECORDED',
+      'WORKOUT_COMPLETED'
+    ]
   },
 
   // SCHEDULE: For type: SCHEDULED
@@ -32,10 +46,25 @@ const AutomationSchema = new mongoose.Schema({
   
   // ACTIONS: What to do
   actions: [{
-    type: { type: String, enum: ['SEND_EMAIL', 'SEND_CHAT'], required: true },
+    type: { 
+      type: String, 
+      enum: [
+        'SEND_EMAIL', 
+        'SEND_CHAT', 
+        'CREATE_TASK',
+        'SEND_PUSH_NOTIFICATION',
+        'ADD_TAG',
+        'SEND_SMS'
+      ], 
+      required: true 
+    },
     templateId: { type: mongoose.Schema.Types.ObjectId, ref: 'Template' },
     contentOverride: { type: String }, // If not using a template
     delay: { type: Number, default: 0 }, // In minutes
+    // Additional fields for specific action types
+    taskTitle: { type: String }, // For CREATE_TASK
+    taskDueDate: { type: String }, // For CREATE_TASK (relative like "+3d" or absolute)
+    tagName: { type: String }, // For ADD_TAG
   }],
   
   advisorId: { type: mongoose.Schema.Types.ObjectId, ref: 'Usuario', required: true },

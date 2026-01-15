@@ -44,6 +44,17 @@ exports.create = async (req, res) => {
     payload = await calculateDietMacros(payload);
     
     const doc = await Dieta.create(payload);
+    
+    // Automation: DIET_ASSIGNED
+    if (doc.asesorId && doc.clienteId) {
+       const { triggerAutomations } = require("../utils/automationManager");
+       await triggerAutomations('DIET_ASSIGNED', {
+          advisorId: doc.asesorId,
+          clientId: doc.clienteId,
+          data: { dietId: doc._id }
+       });
+    }
+
     return res.status(201).json(doc);
   } catch (e) {
     console.error("Error creating diet:", e);

@@ -27,6 +27,8 @@ router.get("/", auth, async (req, res) => {
   try {
     const isClient = req.user.role === 'client';
     const month = String(req.query?.month || "");
+    const start = String(req.query?.start || "");
+    const end = String(req.query?.end || "");
     
     let q = {};
     
@@ -46,6 +48,10 @@ router.get("/", auth, async (req, res) => {
     // Filter by month if provided 'YYYY-MM'
     if (month && /^\d{4}-\d{2}$/.test(month)) {
       q.date = { $regex: `^${month}` }; 
+    } else if (start || end) {
+      q.date = {};
+      if (start) q.date.$gte = start;
+      if (end) q.date.$lte = end;
     }
     
     const items = await Cita.find(q)
@@ -342,6 +348,21 @@ router.put("/:id/asistencia", async (req, res) => {
 
     // ✅ status tarea: done si asiste, pending si no
     await setTareaStatusByCita(req, id, asistio ? "done" : "pending");
+
+    // Automation Triggers
+    if (asistio) {
+      await triggerAutomations('APPOINTMENT_CONFIRMED', {
+        advisorId: asesorId || cita.asesorId,
+        clientId: cita.clienteId,
+        appointmentId: cita._id
+      });
+    } else {
+      await triggerAutomations('APPOINTMENT_CANCELLED', {
+        advisorId: asesorId || cita.asesorId,
+        clientId: cita.clienteId,
+        appointmentId: cita._id
+      });
+    }
 
     res.json({ ok: true, cita });
   } catch (e) {

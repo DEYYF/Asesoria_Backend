@@ -27,6 +27,7 @@ const PresupuestoSchema = new Schema(
           ref: "Extra",
         },
         precio: Number, // se guarda el precio al momento del presupuesto
+        precioTotal: Number, // Precio calculado (mensual * meses)
       },
     ],
     total: {
