@@ -31,7 +31,11 @@ router.post("/", async (req, res) => {
 // ✅ Listado general (ligero, sin populate)
 router.get("/", async (req, res) => {
   try {
-    const items = await Entrenamiento.find({}, {                      // proyección ligera
+    const { clienteId } = req.query;
+    const filter = {};
+    if (clienteId) filter.clienteId = clienteId;
+
+    const items = await Entrenamiento.find(filter, {                      // proyección ligera
       titulo: 1,
       objetivo: 1,
       clienteId: 1,
