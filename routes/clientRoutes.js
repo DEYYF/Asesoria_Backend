@@ -478,6 +478,14 @@ router.put("/:id/historial", async (req, res) => {
       data: { progressEntry: req.body }
     });
 
+    if (req.body.peso) {
+      await triggerAutomations('WEIGHT_LOGGED', {
+        advisorId: cliente.asesorId,
+        clientId: cliente._id,
+        data: { progressEntry: req.body, weight: req.body.peso }
+      });
+    }
+
     res.json(cliente);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -658,56 +666,118 @@ router.put("/:id/sesiones-counter", async (req, res) => {
     let budgetCreated = false;
     let resetOccurred = false;
 
-    // Check if month changed and counter > 0 → create budget and reset
-    if (cliente.sesionesLastMonth && cliente.sesionesLastMonth !== currentMonth && cliente.sesionesCounter > 0) {
-      // Get "Sesión de entrenamiento" extra
-      const Extra = require("../models/Extra");
-      let sesionExtra = await Extra.findOne({ nombre: "Sesión de entrenamiento" });
-      
-      // Create extra if doesn't exist
-      if (!sesionExtra) {
-        sesionExtra = await Extra.create({
-          nombre: "Sesión de entrenamiento",
-          descripcion: "Sesión individual de entrenamiento",
-          precio: 0, // Set default price, can be updated later
-          activo: true
-        });
+    // Check if month changed
+    const monthChanged = !cliente.sesionesLastMonth || cliente.sesionesLastMonth !== currentMonth;
+
+    // Detect Packs
+    const Extra = require("../models/Extra");
+    const packs = await Extra.find({ 
+      nombre: { $in: ["Pack 4 sesiones", "Pack 8 sesiones"] } 
+    });
+    
+    // Normalize client extras to strings for comparison
+    const clientExtraIds = (cliente.extras || []).map(e => 
+      (e && e._id) ? e._id.toString() : (e ? e.toString() : "")
+    );
+
+    const pack4 = packs.find(p => p.nombre === "Pack 4 sesiones");
+    const pack8 = packs.find(p => p.nombre === "Pack 8 sesiones");
+
+    const hasPack4 = pack4 && clientExtraIds.includes(pack4._id.toString());
+    const hasPack8 = pack8 && clientExtraIds.includes(pack8._id.toString());
+
+    if (monthChanged) {
+      if (hasPack4 || hasPack8) {
+        // PACK MODE: Bill ONLY for excess sessions (Total - PackSize)
+        const packSize = hasPack8 ? 8 : 4;
+        const totalPerformed = cliente.sesionesCounter || 0;
+        
+        let chargeableSessions = totalPerformed - packSize;
+        if (chargeableSessions < 0) chargeableSessions = 0; // Within limits
+
+        if (chargeableSessions > 0) {
+             // Get "Sesión de entrenamiento" extra
+            let sesionExtra = await Extra.findOne({ nombre: "Sesión de entrenamiento" });
+            if (!sesionExtra) {
+              sesionExtra = await Extra.create({
+                nombre: "Sesión de entrenamiento",
+                descripcion: "Sesión individual de entrenamiento",
+                precio: 0, 
+                activo: true
+              });
+            }
+
+            const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+            const lastDayPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+            const precioTotal = sesionExtra.precio * chargeableSessions;
+            
+            await Presupuesto.create({
+              clienteId: cliente._id,
+              nombreCliente: cliente.nombre,
+              emailCliente: cliente.email,
+              usuarioId: cliente.asesorId,
+              tarifaId: null, 
+              extras: [{
+                extraId: sesionExtra._id,
+                precio: sesionExtra.precio,
+                precioTotal
+              }],
+              total: precioTotal,
+              descuento: 0,
+              fechaInicio: prevMonth,
+              fechaFin: lastDayPrevMonth,
+              estado: "pendiente",
+            });
+            budgetCreated = true;
+        }
+
+        resetOccurred = true;
+        cliente.sesionesCounter = 0; // Always reset to 0 (Total Performed Logic)
+
+      } else {
+        // PAY-PER-USE MODE: Bill previous sessions and reset to 0
+        if (cliente.sesionesCounter > 0) {
+          // Get "Sesión de entrenamiento" extra
+          let sesionExtra = await Extra.findOne({ nombre: "Sesión de entrenamiento" });
+          
+          if (!sesionExtra) {
+            sesionExtra = await Extra.create({
+              nombre: "Sesión de entrenamiento",
+              descripcion: "Sesión individual de entrenamiento",
+              precio: 0, 
+              activo: true
+            });
+          }
+
+          const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+          const lastDayPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+          const precioTotal = sesionExtra.precio * cliente.sesionesCounter;
+          
+          await Presupuesto.create({
+            clienteId: cliente._id,
+            nombreCliente: cliente.nombre,
+            emailCliente: cliente.email,
+            usuarioId: cliente.asesorId,
+            tarifaId: null, 
+            extras: [{
+              extraId: sesionExtra._id,
+              precio: sesionExtra.precio,
+              precioTotal
+            }],
+            total: precioTotal,
+            descuento: 0,
+            fechaInicio: prevMonth,
+            fechaFin: lastDayPrevMonth,
+            estado: "pendiente",
+          });
+
+          budgetCreated = true;
+          resetOccurred = true;
+          cliente.sesionesCounter = 0;
+        }
       }
-
-      // Calculate previous month dates
-      const prevMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const lastDayPrevMonth = new Date(now.getFullYear(), now.getMonth(), 0);
-
-      // Create extras-only budget
-      const precioTotal = sesionExtra.precio * cliente.sesionesCounter;
       
-      await Presupuesto.create({
-        clienteId: cliente._id,
-        nombreCliente: cliente.nombre,
-        emailCliente: cliente.email,
-        usuarioId: cliente.asesorId,
-        tarifaId: null, // Extras-only budget
-        extras: [{
-          extraId: sesionExtra._id,
-          precio: sesionExtra.precio,
-          precioTotal
-        }],
-        total: precioTotal,
-        descuento: 0,
-        fechaInicio: prevMonth,
-        fechaFin: lastDayPrevMonth,
-        estado: "pendiente",
-      });
-
-      budgetCreated = true;
-      resetOccurred = true;
-      
-      // Reset counter
-      cliente.sesionesCounter = 0;
-    }
-
-    // Update last month if not set or if month changed
-    if (!cliente.sesionesLastMonth || cliente.sesionesLastMonth !== currentMonth) {
+      // Update month tracker
       cliente.sesionesLastMonth = currentMonth;
     }
 

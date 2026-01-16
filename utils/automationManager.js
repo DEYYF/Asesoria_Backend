@@ -110,6 +110,53 @@ async function executeAction(action, { cliente, advisorId, data }) {
     
     await conv.save();
     console.log(`[Automation] Chat message sent to ${cliente.nombre}`);
+  } else if (action.type === 'CREATE_TASK') {
+    // Implement Task Creation
+    const Task = require('../models/Tarea'); // Ensure you have this model
+    if (!advisorId) return;
+
+    const dueDateStr = action.metadata?.dueDate; 
+    let dueDate = null; 
+    
+    // Simple relative date parsing (e.g., "+3d")
+    if (dueDateStr && dueDateStr.startsWith('+')) {
+       const days = parseInt(dueDateStr.replace('+','').replace('d','')) || 0;
+       const d = new Date();
+       d.setDate(d.getDate() + days);
+       dueDate = d;
+    }
+
+    await Task.create({
+       asesorId: advisorId,
+       clienteId: cliente?._id,
+       titulo: content, // Task title from content
+       descripcion: `Tarea creada automáticamente por regla de automatización.`,
+       fechaVencimiento: dueDate,
+       estado: 'PENDIENTE'
+    });
+    console.log(`[Automation] Task created: ${content}`);
+
+  } else if (action.type === 'ADD_TAG') {
+      // Implement Add Tag
+      if (!cliente) return;
+      
+      const tag = content.trim(); // Tag name from content
+      if (tag && !cliente.etiquetas?.includes(tag)) {
+         cliente.etiquetas = [...(cliente.etiquetas || []), tag];
+         await cliente.save();
+         console.log(`[Automation] Tag added to ${cliente.nombre}: ${tag}`);
+      }
+
+  } else if (action.type === 'SEND_PUSH_NOTIFICATION') {
+      // Stub for Push Notification - requires WebPush configuration
+      console.log(`[Automation] PUSH NOTIFICATION (Mock): ${content} to ${cliente?.nombre}`);
+      // In a real implementation:
+      // const subscription = await PushSubscription.findOne({ userId: cliente._id });
+      // if (subscription) webpush.sendNotification(subscription, content);
+
+  } else if (action.type === 'SEND_SMS') {
+       // Stub for SMS - requires Twilio or similar
+       console.log(`[Automation] SMS (Mock): ${content} to ${cliente?.telefono}`);
   }
 }
 
@@ -185,9 +232,97 @@ async function processScheduledAutomations() {
       console.log(`[Automation] Rule ${automation.name} executed.`);
     }
 
+    // --- NEW DAILY TRIGGERS LOGIC ---
+    // Run this block ideally once a day (or check if already ran today)
+    // For simplicity, we check if hour == 9 (9 AM) and minute < 15 to run checking
+    if (currentHour === 9 && currentMinute < 15) {
+       await checkDailyTriggers(now);
+    }
+
   } catch (e) {
     console.error('[Automation] Error processing scheduled automations:', e);
   }
+}
+
+/**
+ * Checks for daily-based triggers like Birthday, Plan Expiration, etc.
+ */
+async function checkDailyTriggers(today) {
+    console.log('[Automation] Checking daily triggers...');
+    
+    // 1. Get all active event-based automations concerning dates
+    const dailyAutomations = await Automation.find({
+        active: true,
+        type: 'EVENT',
+        trigger: { $in: ['PLAN_EXPIRED', 'BIRTHDAY', 'INACTIVE_7_DAYS', 'PLAN_EXPIRING_3_DAYS'] }
+    }).populate('actions.templateId');
+
+    if (dailyAutomations.length === 0) return;
+
+    // 2. Fetch all clients to check conditions
+    // Optimization: In a real app, query only relevant clients from DB instead of JS filtering
+    const allClients = await Cliente.find({ estado: 'Activo' });
+
+    for (const auto of dailyAutomations) {
+        
+        let targetClients = [];
+        if (auto.allClients) {
+            targetClients = allClients.filter(c => c.asesorId === auto.advisorId);
+        } else {
+            targetClients = allClients.filter(c => auto.targetClientIds.includes(c._id.toString()));
+        }
+
+        for (const client of targetClients) {
+             let shouldTrigger = false;
+
+             // Rule: BIRTHDAY
+             if (auto.trigger === 'BIRTHDAY' && client.fechaNacimiento) {
+                 const dob = new Date(client.fechaNacimiento);
+                 if (dob.getDate() === today.getDate() && dob.getMonth() === today.getMonth()) {
+                     shouldTrigger = true;
+                 }
+             }
+
+             // Rule: PLAN_EXPIRED
+             if (auto.trigger === 'PLAN_EXPIRED' && client.fechaFin) {
+                 // Check if expired yesterday/today
+                 const expiry = new Date(client.fechaFin);
+                 // Normalize to start of day
+                 const t = new Date(today); t.setHours(0,0,0,0);
+                 const e = new Date(expiry); e.setHours(0,0,0,0);
+                 
+                 // Trigger if expiry matches today (or yesterday if strict)
+                 if (e.getTime() === t.getTime()) {
+                     shouldTrigger = true;
+                 }
+             }
+
+             // Rule: INACTIVE_7_DAYS
+             if (auto.trigger === 'INACTIVE_7_DAYS') {
+                 // Requires 'lastLogin' or similar field. Assuming 'ultimaActividad' exists or using 'updatedAt' fallback
+                 const lastActive = client.ultimaActividad ? new Date(client.ultimaActividad) : new Date(client.updatedAt);
+                 const diffTime = Math.abs(today - lastActive);
+                 const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+                 if (diffDays === 7) {
+                     shouldTrigger = true;
+                 }
+             }
+
+             if (shouldTrigger) {
+                 console.log(`[Automation] Triggering ${auto.trigger} for ${client.nombre}`);
+                 for (const action of auto.actions) {
+                    await executeAction(action, { 
+                        cliente: client, 
+                        advisorId: auto.advisorId, 
+                        data: { event: auto.trigger } 
+                    });
+                 }
+                 // Optional: Limit frequency to avoid duplicate triggers if cron runs multiple times
+             }
+        }
+    }
+
+
 }
 
 module.exports = { triggerAutomations, processScheduledAutomations };
