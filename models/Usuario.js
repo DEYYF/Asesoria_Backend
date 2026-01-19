@@ -5,6 +5,7 @@ const UsuarioSchema = new mongoose.Schema({
   nombre: { type: String, required: true },
   email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
+  role: { type: String, enum: ['advisor', 'superadmin'], default: 'advisor' },
   createdAt: { type: Date, default: Date.now },
   calendarSettings: {
     bloques: [{
@@ -36,7 +37,20 @@ const UsuarioSchema = new mongoose.Schema({
     enabledTemplateManagement: { type: Boolean, default: true },
     enabledTrainingLog: { type: Boolean, default: true },
     enabledFoodScanner: { type: Boolean, default: true },
-    enabledAutomation: { type: Boolean, default: true }
+    enabledAutomation: { type: Boolean, default: true },
+    kanbanColumns: {
+      type: [{
+        id: String,
+        title: String,
+        color: String,
+        order: Number
+      }],
+      default: [
+        { id: 'todo', title: 'PENDIENTE', color: 'orange', order: 0 },
+        { id: 'doing', title: 'EN PROGRESO', color: 'blue', order: 1 },
+        { id: 'done', title: 'COMPLETADO', color: 'green', order: 2 }
+      ]
+    }
   }
 });
 

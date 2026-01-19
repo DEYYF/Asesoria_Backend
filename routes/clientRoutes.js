@@ -10,9 +10,10 @@ const { triggerAutomations } = require('../utils/automationManager');
 const { z } = require("zod");
 const Presupuesto = require("../models/Presuspuesto");
 const Tarifa = require("../models/Tarifa");
+const authMiddleware = require("../middlewares/authMiddleware");
 
 // ────────────────────────────── Obtener estado del presupuesto de un cliente
-router.get("/:id/budget-status", async (req, res) => {
+router.get("/:id/budget-status", authMiddleware, async (req, res) => {
   try {
     const presupuesto = await Presupuesto.findOne({ clienteId: req.params.id })
       .sort({ createdAt: -1 }); // Obtener el más reciente
@@ -62,8 +63,10 @@ router.post("/", async (req, res) => {
 });
 
 // ────────────────────────────── Listado simple
-router.get("/", async (req, res) => {
-  const clientes = await Cliente.find().lean(); // .lean() para mejor performance
+router.get("/", authMiddleware, async (req, res) => {
+  const isSuperAdmin = req.user?.role === 'superadmin';
+  const filter = isSuperAdmin ? {} : { asesorId: req.user.id };
+  const clientes = await Cliente.find(filter).lean();
   res.json(clientes);
 });
 
@@ -78,12 +81,16 @@ router.get("/", async (req, res) => {
  * ─────────────────────────────────────────────────────────────────────────────
  */
 
-router.get("/destacados", async (req, res) => {
+router.get("/destacados", authMiddleware, async (req, res) => {
   try {
-    const { asesorId, limit = 200, cutoffDays = 3, segments } = req.query;
+    const { asesorId: queryAsesorId, limit = 200, cutoffDays = 3, segments } = req.query;
+    const isSuperAdmin = req.user?.role === 'superadmin';
 
-    const asesorMatch = asesorId
-      ? { asesorId: Types.ObjectId.isValid(String(asesorId)) ? new Types.ObjectId(String(asesorId)) : String(asesorId) }
+    // Enforcement: If not superadmin, must use own ID
+    const effectiveAsesorId = isSuperAdmin ? queryAsesorId : req.user.id;
+
+    const asesorMatch = effectiveAsesorId
+      ? { asesorId: Types.ObjectId.isValid(String(effectiveAsesorId)) ? new Types.ObjectId(String(effectiveAsesorId)) : String(effectiveAsesorId) }
       : {};
 
     let segList = null;

@@ -1,6 +1,9 @@
 const express = require('express');
 const router = express.Router();
 const finanzasController = require('../controllers/finanzasController');
+const authMiddleware = require('../middlewares/authMiddleware');
+
+router.use(authMiddleware);
 
 router.get('/resumen', finanzasController.obtenerResumen);
 router.get('/movimientos', finanzasController.obtenerMovimientos);

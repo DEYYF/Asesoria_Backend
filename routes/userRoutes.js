@@ -2,6 +2,34 @@ const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../middlewares/authMiddleware');
 
+router.get('/', authMiddleware, async (req, res) => {
+  try {
+    const isSuperAdmin = req.user?.role === 'superadmin';
+    if (!isSuperAdmin) return res.status(403).json({ error: 'Acceso denegado' });
+
+    const Usuario = require('../models/Usuario');
+    // Include users with 'advisor' role OR no role field at all
+    const users = await Usuario.find({ 
+      $or: [
+        { role: 'advisor' },
+        { role: { $exists: false } },
+        { role: null }
+      ]
+    }).select('nombre email avatarUrl role');
+    
+    // Normalize role for frontend
+    const mappedUsers = users.map(u => {
+      const userObj = u.toObject();
+      if (!userObj.role) userObj.role = 'advisor';
+      return userObj;
+    });
+    
+    res.json(mappedUsers);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/perfil', authMiddleware, (req, res) => {
   res.json({ mensaje: 'Perfil accedido con éxito', user: req.user });
 });
@@ -120,6 +148,131 @@ router.put('/:id/settings', authMiddleware, async (req, res) => {
     }
     
     res.json(user.settings);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// --- SUPER ADMIN USER MANAGEMENT ---
+
+// GET /api/users/:id - Get full user details
+router.get('/:id', authMiddleware, async (req, res) => {
+  try {
+    const isSuperAdmin = req.user?.role === 'superadmin';
+    if (!isSuperAdmin) return res.status(403).json({ error: 'Acceso denegado' });
+
+    const Usuario = require('../models/Usuario');
+    const user = await Usuario.findById(req.params.id); // Don't exclude password for superadmin
+    if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+    
+    const result = user.toObject();
+    if (!result.role) result.role = 'advisor';
+    // Keep password in response for superadmin to view/edit
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/users/:id/stats - Get advisor statistics
+router.get('/:id/stats', authMiddleware, async (req, res) => {
+  try {
+    const isSuperAdmin = req.user?.role === 'superadmin';
+    if (!isSuperAdmin) return res.status(403).json({ error: 'Acceso denegado' });
+
+    const Cliente = require('../models/Cliente');
+    const Cita = require('../models/Cita');
+    const Tarea = require('../models/Tarea');
+
+    const asesorId = req.params.id;
+
+    const [clientCount, appointmentCount, taskCount] = await Promise.all([
+      Cliente.countDocuments({ asesorId }),
+      Cita.countDocuments({ asesorId }),
+      Tarea.countDocuments({ assigneeId: asesorId })
+    ]);
+
+    res.json({
+      clients: clientCount,
+      appointments: appointmentCount,
+      tasks: taskCount
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/users - Create new user
+router.post('/', authMiddleware, async (req, res) => {
+  try {
+    const isSuperAdmin = req.user?.role === 'superadmin';
+    if (!isSuperAdmin) return res.status(403).json({ error: 'Acceso denegado' });
+
+    const { nombre, email, password, role } = req.body;
+    const Usuario = require('../models/Usuario');
+    const bcrypt = require('bcrypt');
+
+    const exists = await Usuario.findOne({ email });
+    if (exists) return res.status(400).json({ error: 'El email ya está registrado' });
+
+    const hashedPassword = await bcrypt.hash(password, 10);
+    const newUser = new Usuario({
+      nombre,
+      email,
+      password: hashedPassword,
+      role: role || 'advisor'
+    });
+
+    await newUser.save();
+    const result = newUser.toObject();
+    delete result.password;
+    res.status(201).json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/users/:id - Update user (all data)
+router.put('/:id', authMiddleware, async (req, res) => {
+  try {
+    const isSuperAdmin = req.user?.role === 'superadmin';
+    if (!isSuperAdmin) return res.status(403).json({ error: 'Acceso denegado' });
+
+    const { nombre, email, password, role, settings, calendarSettings } = req.body;
+    const Usuario = require('../models/Usuario');
+    const bcrypt = require('bcrypt');
+
+    const updateData = { nombre, email, role, settings, calendarSettings };
+    if (password && password.trim().length > 0) {
+      updateData.password = await bcrypt.hash(password, 10);
+    }
+
+    // Remove undefined fields
+    Object.keys(updateData).forEach(key => updateData[key] === undefined && delete updateData[key]);
+
+    const user = await Usuario.findByIdAndUpdate(
+      req.params.id,
+      { $set: updateData },
+      { new: true, runValidators: true }
+    ).select('-password');
+
+    if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// DELETE /api/users/:id - Delete user
+router.delete('/:id', authMiddleware, async (req, res) => {
+  try {
+    const isSuperAdmin = req.user?.role === 'superadmin';
+    if (!isSuperAdmin) return res.status(403).json({ error: 'Acceso denegado' });
+
+    const Usuario = require('../models/Usuario');
+    const user = await Usuario.findByIdAndDelete(req.params.id);
+    if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+    res.json({ ok: true, mensaje: 'Usuario eliminado' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

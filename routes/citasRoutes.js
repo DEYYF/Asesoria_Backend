@@ -171,7 +171,7 @@ router.delete("/purge-past", auth, async (req, res) => {
   }
 });
 
-router.get("/by-slot", async (req, res) => {
+router.get("/by-slot", auth, async (req, res) => {
   try {
     const {
       from,
@@ -315,7 +315,7 @@ router.get("/by-slot", async (req, res) => {
 });
 
 // PUT /api/citas/:id/asistencia
-router.put("/:id/asistencia", async (req, res) => {
+router.put("/:id/asistencia", auth, async (req, res) => {
   try {
     const { id } = req.params;
     let { asistio, action, asesorId } = req.body;

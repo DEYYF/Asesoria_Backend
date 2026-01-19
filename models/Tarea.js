@@ -5,7 +5,7 @@ const TareaSchema = new mongoose.Schema(
   {
     title:   { type: String, required: true, trim: true },
     notes:   { type: String, default: "" },
-    status:  { type: String, enum: ["pending", "done"], default: "pending", index: true },
+    status:  { type: String, default: "todo", index: true },
     dueAt:   { type: Date },
 
     // relaciones / metadatos
