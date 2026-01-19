@@ -1,6 +1,7 @@
 // routes/tareaRoutes.js
 const express = require('express');
 const router = express.Router();
+const authMiddleware = require('../middlewares/authMiddleware');
 
 const Tarea = require('../models/Tarea');          
 const { createTarea } = require('../utils/tareas'); 
@@ -9,12 +10,19 @@ function getAsesorId(req) {
   return req.user?._id || req.body?.asesorId || req.query?.asesorId || null;
 }
 
+router.use(authMiddleware);
+
 router.get('/', async (req, res) => {
   try {
-    const { status, assigneeId, clientId } = req.query;
+    const { status, assigneeId: queryAssigneeId, clientId } = req.query;
+    const isSuperAdmin = req.user?.role === 'superadmin';
+
+    // Enforcement: If not superadmin, must use own ID
+    const effectiveAssigneeId = isSuperAdmin ? queryAssigneeId : req.user.id;
+
     const filter = {};
     if (status) filter.status = status;
-    if (assigneeId) filter.assigneeId = assigneeId;
+    if (effectiveAssigneeId) filter.assigneeId = effectiveAssigneeId;
     if (clientId) filter.clientId = clientId;
 
     const tareas = await Tarea.find(filter).sort({ createdAt: -1 });

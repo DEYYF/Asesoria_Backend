@@ -8,7 +8,7 @@ module.exports = (req, res, next) => {
     if (!token) return res.status(401).json({ error: "No token" });
 
     const payload = jwt.verify(token, process.env.JWT_SECRET || "devsecret");
-    req.user = payload; // { _id, role, ... }
+    req.user = { ...payload, role: payload.role || 'advisor' }; // { _id, role, ... }
     next();
   } catch (e) {
     return res.status(401).json({ error: "Invalid token" });

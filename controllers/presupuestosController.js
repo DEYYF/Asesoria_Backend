@@ -116,11 +116,15 @@ exports.crearPresupuesto = async (req, res) => {
 
 exports.obtenerPresupuestos = async (req, res) => {
   try {
-    const { clienteId, asesorId } = req.query;
-    let filtros = {};
+    const { clienteId, asesorId: queryAsesorId } = req.query;
+    const isSuperAdmin = req.user?.role === 'superadmin';
 
+    // Enforcement: If not superadmin, must use own ID
+    const effectiveAsesorId = isSuperAdmin ? queryAsesorId : req.user.id;
+
+    let filtros = {};
     if (clienteId) filtros.clienteId = clienteId;
-    if (asesorId) filtros.usuarioId = asesorId;
+    if (effectiveAsesorId) filtros.usuarioId = effectiveAsesorId;
 
     const presupuestos = await Presupuesto.find(filtros)
       .populate("tarifaId")

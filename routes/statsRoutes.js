@@ -2,6 +2,7 @@
 const express = require("express");
 const router = express.Router();
 const { Types } = require("mongoose");
+const authMiddleware = require("../middlewares/authMiddleware");
 
 const Cita = require("../models/Cita");
 const Cliente = require("../models/Cliente");
@@ -10,14 +11,23 @@ const Entrenamiento = require("../models/Entrenamiento");
 
 // Helpers
 const clampTZ = (tz) => (tz && typeof tz === "string" ? tz : "Europe/Madrid");
-const castAsesorMatch = (asesorId) => {
-  if (!asesorId) return {};
+
+const enforceAsesorMatch = (req) => {
+  const { asesorId: queryAsesorId } = req.query;
+  const isSuperAdmin = req.user?.role === 'superadmin';
+
+  // If not superadmin, must use own ID
+  const effectiveAsesorId = isSuperAdmin ? queryAsesorId : req.user.id;
+
+  if (!effectiveAsesorId) return {};
   return {
-    asesorId: Types.ObjectId.isValid(String(asesorId))
-      ? new Types.ObjectId(String(asesorId))
-      : String(asesorId),
+    asesorId: Types.ObjectId.isValid(String(effectiveAsesorId))
+      ? new Types.ObjectId(String(effectiveAsesorId))
+      : String(effectiveAsesorId),
   };
 };
+
+router.use(authMiddleware);
 
 /**
  * GET /api/stats/dashboard
@@ -25,8 +35,7 @@ const castAsesorMatch = (asesorId) => {
  */
 router.get("/dashboard", async (req, res) => {
   try {
-    const { asesorId } = req.query;
-    const matchByAsesor = castAsesorMatch(asesorId);
+    const matchByAsesor = enforceAsesorMatch(req);
     const now = new Date();
 
     const totalClientes = await Cliente.countDocuments(matchByAsesor);
@@ -57,9 +66,9 @@ router.get("/dashboard", async (req, res) => {
  */
 router.get("/attendance", async (req, res) => {
   try {
-    const { from, to, asesorId, tz } = req.query;
+    const { from, to, tz } = req.query;
     const timezone = clampTZ(tz);
-    const matchAsesor = castAsesorMatch(asesorId);
+    const matchAsesor = enforceAsesorMatch(req);
 
     const pipeline = [
       ...(Object.keys(matchAsesor).length ? [{ $match: matchAsesor }] : []),
@@ -177,7 +186,10 @@ router.get("/renewals", async (req, res) => {
     const start = new Date(Date.UTC(y, m - 1, 1));
     const next = new Date(Date.UTC(m === 12 ? y + 1 : y, m === 12 ? 0 : m, 1));
 
+    const matchByAsesor = enforceAsesorMatch(req);
+
     const rows = await Cliente.aggregate([
+      { $match: matchByAsesor },
       { $addFields: { fin: { $toDate: "$fechaFin" } } },
       { $match: { fin: { $gte: start, $lt: next } } },
       { $count: "renewals" },
@@ -197,16 +209,7 @@ router.get("/renewals", async (req, res) => {
 // GET /api/stats/agenda-heatmap?from=YYYY-MM-DD&to=YYYY-MM-DD&tz=Europe/Madrid&asesorId=
 router.get("/agenda-heatmap", async (req, res) => {
   try {
-    const { from, to, tz = "Europe/Madrid", asesorId } = req.query;
-    const { Types } = require("mongoose");
-
-    // Match por asesor (acepta ObjectId o string)
-    const match = {};
-    if (asesorId) {
-      match.asesorId = Types.ObjectId.isValid(String(asesorId))
-        ? new Types.ObjectId(String(asesorId))
-        : String(asesorId);
-    }
+    const match = enforceAsesorMatch(req);
 
     // Rango por STRING (YYYY-MM-DD) — fiable con tu esquema
     if (from) match.date = { ...(match.date || {}), $gte: from };
@@ -271,8 +274,9 @@ router.get("/agenda-heatmap", async (req, res) => {
  */
 router.get("/funnel", async (req, res) => {
   try {
-    const { asesorId } = req.query;
-    const matchCliente = castAsesorMatch(asesorId);
+    const matchCliente = enforceAsesorMatch(req);
+    // Use asesorId from the match if it exists
+    const matchAsesorId = matchCliente.asesorId;
 
     // ids de clientes de este asesor (si aplica)
     const ids = await Cliente.find(matchCliente).select("_id").lean();
