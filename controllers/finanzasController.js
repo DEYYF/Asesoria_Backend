@@ -13,16 +13,24 @@ const movimientoSchema = z.object({
 
 exports.obtenerResumen = async (req, res) => {
     try {
-        const { asesorId } = req.query;
+        const { asesorId, periodo = 'mensual' } = req.query;
         // Removed mandatory check to allow Global View
 
         const now = new Date();
-        const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-        const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
+        let startDate, endDate;
+
+        if (periodo === 'anual') {
+            startDate = new Date(now.getFullYear(), 0, 1);
+            endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59);
+        } else {
+            // mensual
+            startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+            endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+        }
 
         const query = {
             tipoMovimiento: { $in: ['INGRESO', 'GASTO'] },
-            fecha: { $gte: startOfMonth, $lte: endOfMonth }
+            fecha: { $gte: startDate, $lte: endDate }
         };
         if (asesorId) query.asesorId = asesorId;
 
@@ -53,7 +61,7 @@ exports.obtenerResumen = async (req, res) => {
         });
 
         res.json({
-            mesActual: {
+            periodoActual: {
                 ingresos: ingresosMensuales,
                 gastos: gastosMensuales,
                 balance: ingresosMensuales - gastosMensuales
@@ -168,10 +176,10 @@ exports.obtenerControlPagos = async (req, res) => {
 
 exports.obtenerHistoricoGrafico = async (req, res) => {
     try {
-        const { asesorId } = req.query;
+        const { asesorId, periodo = 'mensual' } = req.query;
         // Removed mandatory check
 
-        const monthsToFetch = 6;
+        const monthsToFetch = periodo === 'anual' ? 12 : 6;
         const result = [];
         const now = new Date();
 
