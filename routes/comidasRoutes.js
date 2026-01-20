@@ -341,6 +341,7 @@ router.get("/recetas", async (req, res) => {
       caloriasTotales: receta.caloriasTotales,
       macrosTotales: receta.macrosTotales,
       ingredientes: (receta.ingredientes || []).map((i) => ({
+        ingrediente: i.ingrediente?._id || null,
         nombre: i.ingrediente?.nombre || i.nombreLibre || "Desconocido",
         gramos: i.gramos,
       })),
