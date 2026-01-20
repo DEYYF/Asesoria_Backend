@@ -124,4 +124,28 @@ exports.clientLogin = async (req, res) => {
   }
 };
 
+exports.checkClientStatus = async (req, res) => {
+  try {
+    const { email } = req.body;
+    const Cliente = require('../models/Cliente');
 
+    if (!email) {
+      return res.status(400).json({ message: "Email requerido" });
+    }
+
+    const cliente = await Cliente.findOne({ email });
+
+    if (!cliente) {
+      return res.status(404).json({ exists: false, message: "Cliente no encontrado" });
+    }
+
+    return res.json({
+      exists: true,
+      requiresPasswordSetup: !cliente.password,
+      message: cliente.password ? "Cliente requiere contraseña" : "Cliente requiere configuración de contraseña"
+    });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ message: "Error en servidor" });
+  }
+};
