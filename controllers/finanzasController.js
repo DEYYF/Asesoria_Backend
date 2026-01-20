@@ -14,17 +14,19 @@ const movimientoSchema = z.object({
 exports.obtenerResumen = async (req, res) => {
     try {
         const { asesorId } = req.query;
-        if (!asesorId) return res.status(400).json({ message: 'asesorId es requerido' });
+        // Removed mandatory check to allow Global View
 
         const now = new Date();
         const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
         const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
 
-        const movimientos = await Movimiento.find({
-            asesorId,
+        const query = {
             tipoMovimiento: { $in: ['INGRESO', 'GASTO'] },
             fecha: { $gte: startOfMonth, $lte: endOfMonth }
-        });
+        };
+        if (asesorId) query.asesorId = asesorId;
+
+        const movimientos = await Movimiento.find(query);
 
         let ingresosMensuales = 0;
         let gastosMensuales = 0;
@@ -34,9 +36,12 @@ exports.obtenerResumen = async (req, res) => {
             if (m.tipoMovimiento === 'GASTO') gastosMensuales += m.monto;
         });
 
-        // Totales históricos simplificados (opcional)
+        // Totales históricos simplificados
+        const histMatch = { tipoMovimiento: { $in: ['INGRESO', 'GASTO'] } };
+        if (asesorId) histMatch.asesorId = new mongoose.Types.ObjectId(asesorId);
+
         const totalHistorico = await Movimiento.aggregate([
-            { $match: { asesorId: new mongoose.Types.ObjectId(asesorId), tipoMovimiento: { $in: ['INGRESO', 'GASTO'] } } },
+            { $match: histMatch },
             { $group: { _id: '$tipoMovimiento', total: { $sum: '$monto' } } }
         ]);
 
@@ -68,7 +73,8 @@ exports.obtenerResumen = async (req, res) => {
 exports.obtenerMovimientos = async (req, res) => {
     try {
         const { asesorId, limit = 50, skip = 0, tipo } = req.query;
-        const query = { asesorId, tipoMovimiento: { $in: ['INGRESO', 'GASTO'] } };
+        const query = { tipoMovimiento: { $in: ['INGRESO', 'GASTO'] } };
+        if (asesorId) query.asesorId = asesorId;
         
         if (tipo) query.tipoMovimiento = tipo;
 
@@ -120,10 +126,13 @@ exports.eliminarMovimiento = async (req, res) => {
 exports.obtenerControlPagos = async (req, res) => {
     try {
         const { asesorId } = req.query;
-        if (!asesorId) return res.status(400).json({ message: 'asesorId es requerido' });
+        // Removed mandatory check to allow Global View
 
         const Cliente = require('../models/Cliente');
-        const clientes = await Cliente.find({ asesorId, estado: 'Activo' })
+        const query = { estado: 'Activo' };
+        if (asesorId) query.asesorId = asesorId;
+
+        const clientes = await Cliente.find(query)
             .select('nombre email fechaFin presupuestoActivo')
             .populate('presupuestoActivo', 'estado total createdAt');
 
@@ -160,7 +169,7 @@ exports.obtenerControlPagos = async (req, res) => {
 exports.obtenerHistoricoGrafico = async (req, res) => {
     try {
         const { asesorId } = req.query;
-        if (!asesorId) return res.status(400).json({ message: 'asesorId es requerido' });
+        // Removed mandatory check
 
         const monthsToFetch = 6;
         const result = [];
@@ -171,13 +180,15 @@ exports.obtenerHistoricoGrafico = async (req, res) => {
             const startOfMonth = new Date(date.getFullYear(), date.getMonth(), 1);
             const endOfMonth = new Date(date.getFullYear(), date.getMonth() + 1, 0, 23, 59, 59);
 
+            const matchQuery = {
+                tipoMovimiento: { $in: ['INGRESO', 'GASTO'] },
+                fecha: { $gte: startOfMonth, $lte: endOfMonth }
+            };
+            if (asesorId) matchQuery.asesorId = new mongoose.Types.ObjectId(asesorId);
+
             const movements = await Movimiento.aggregate([
                 {
-                    $match: {
-                        asesorId: new mongoose.Types.ObjectId(asesorId),
-                        tipoMovimiento: { $in: ['INGRESO', 'GASTO'] },
-                        fecha: { $gte: startOfMonth, $lte: endOfMonth }
-                    }
+                    $match: matchQuery
                 },
                 {
                     $group: {
