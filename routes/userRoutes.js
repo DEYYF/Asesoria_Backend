@@ -278,5 +278,103 @@ router.delete('/:id', authMiddleware, async (req, res) => {
   }
 });
 
+// POST /api/users/transfer-data - Bulk transfer data between advisors
+router.post('/transfer-data', authMiddleware, async (req, res) => {
+  try {
+    const isSuperAdmin = req.user?.role === 'superadmin';
+    if (!isSuperAdmin) return res.status(403).json({ error: 'Acceso denegado' });
+
+    const { fromAdvisorId, toAdvisorId, modules } = req.body;
+    
+    if (!fromAdvisorId || !toAdvisorId) {
+      return res.status(400).json({ error: 'Se requieren ambos asesores (origen y destino)' });
+    }
+
+    if (!modules || !Array.isArray(modules) || modules.length === 0) {
+      return res.status(400).json({ error: 'Debe seleccionar al menos un módulo para transferir' });
+    }
+
+    const Usuario = require('../models/Usuario');
+    const fromAdvisor = await Usuario.findById(fromAdvisorId);
+    const toAdvisor = await Usuario.findById(toAdvisorId);
+
+    if (!fromAdvisor || !toAdvisor) {
+      return res.status(404).json({ error: 'Uno o ambos asesores no existen' });
+    }
+
+    const results = {};
+
+    // 1. Clients (asesorId)
+    if (modules.includes('clients')) {
+      const Cliente = require('../models/Cliente');
+      const updateRes = await Cliente.updateMany(
+        { asesorId: fromAdvisorId },
+        { $set: { asesorId: toAdvisorId } }
+      );
+      results.clients = updateRes.modifiedCount;
+    }
+
+    // 2. Automations (advisorId)
+    if (modules.includes('automations')) {
+      const Automation = require('../models/Automation');
+      const updateRes = await Automation.updateMany(
+        { advisorId: fromAdvisorId },
+        { $set: { advisorId: toAdvisorId } }
+      );
+      results.automations = updateRes.modifiedCount;
+    }
+
+    // 3. Tasks (assigneeId)
+    if (modules.includes('tasks')) {
+      const Tarea = require('../models/Tarea');
+      const updateRes = await Tarea.updateMany(
+        { assigneeId: fromAdvisorId },
+        { $set: { assigneeId: toAdvisorId } }
+      );
+      results.tasks = updateRes.modifiedCount;
+    }
+
+    // 4. Budgets (usuarioId)
+    if (modules.includes('budgets')) {
+      const Presupuesto = require('../models/Presuspuesto'); // Note spelling specific to project
+      const updateRes = await Presupuesto.updateMany(
+        { usuarioId: fromAdvisorId },
+        { $set: { usuarioId: toAdvisorId } }
+      );
+      results.budgets = updateRes.modifiedCount;
+    }
+
+    // 5. Finance Movements (asesorId)
+    if (modules.includes('finance')) {
+      const Movimiento = require('../models/Movimiento');
+      const updateRes = await Movimiento.updateMany(
+        { asesorId: fromAdvisorId },
+        { $set: { asesorId: toAdvisorId } }
+      );
+      results.finance = updateRes.modifiedCount;
+    }
+
+    // 6. Appointments (asesorId)
+    if (modules.includes('appointments')) {
+      const Cita = require('../models/Cita');
+      const updateRes = await Cita.updateMany(
+        { asesorId: fromAdvisorId },
+        { $set: { asesorId: toAdvisorId } }
+      );
+      results.appointments = updateRes.modifiedCount;
+    }
+
+    res.json({ 
+      ok: true, 
+      mensaje: 'Transferencia completada correctamente',
+      detalles: results
+    });
+
+  } catch (err) {
+    console.error('Error en transferencia:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 module.exports = router;

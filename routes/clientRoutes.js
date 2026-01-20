@@ -65,7 +65,17 @@ router.post("/", async (req, res) => {
 // ────────────────────────────── Listado simple
 router.get("/", authMiddleware, async (req, res) => {
   const isSuperAdmin = req.user?.role === 'superadmin';
-  const filter = isSuperAdmin ? {} : { asesorId: req.user.id };
+  const { asesorId } = req.query;
+
+  let filter = {};
+  if (isSuperAdmin) {
+    if (asesorId) {
+       filter.asesorId = asesorId;
+    }
+  } else {
+    filter.asesorId = req.user.id;
+  }
+
   const clientes = await Cliente.find(filter).lean();
   res.json(clientes);
 });
@@ -655,6 +665,69 @@ router.get("/:id/avatar-measures", async (req, res) => {
     res.status(400).json({ error: msg });
   }
 });
+
+// ────────────────────────────── Transfer Single Client
+router.post("/:id/transfer", authMiddleware, async (req, res) => {
+  try {
+    const isSuperAdmin = req.user?.role === 'superadmin';
+    if (!isSuperAdmin) return res.status(403).json({ error: 'Acceso denegado' });
+
+    const { id } = req.params;
+    const { targetAdvisorId } = req.body;
+
+    if (!targetAdvisorId) return res.status(400).json({ error: 'Se requiere el asesor destino' });
+    if (!Types.ObjectId.isValid(String(id))) return res.status(400).json({ error: 'ID de cliente inválido' });
+
+    const cliente = await Cliente.findById(id);
+    if (!cliente) return res.status(404).json({ error: 'Cliente no encontrado' });
+
+    const oldAdvisorId = cliente.asesorId;
+    if (String(oldAdvisorId) === String(targetAdvisorId)) {
+      return res.status(400).json({ error: 'El cliente ya pertenece a este asesor' });
+    }
+
+    // Update Client
+    cliente.asesorId = targetAdvisorId;
+    await cliente.save();
+
+    // Update Tasks
+    const Tarea = require('../models/Tarea');
+    await Tarea.updateMany(
+      { clientId: id, assigneeId: oldAdvisorId },
+      { $set: { assigneeId: targetAdvisorId } }
+    );
+
+    // Update Appointments
+    await Cita.updateMany(
+      { clienteId: id, asesorId: oldAdvisorId },
+      { $set: { asesorId: targetAdvisorId } }
+    );
+
+    // Update Finance Movements
+    const Movimiento = require('../models/Movimiento');
+    await Movimiento.updateMany(
+      { clienteId: id, asesorId: oldAdvisorId },
+      { $set: { asesorId: targetAdvisorId } }
+    );
+
+    // Update Budgets
+    await Presupuesto.updateMany(
+      { clienteId: id, usuarioId: oldAdvisorId },
+      { $set: { usuarioId: targetAdvisorId } }
+    );
+
+    // Log
+    req.body.asesorId = targetAdvisorId;
+    req.body.tipo = "EDITAR";
+    await logMovimiento(req, `Cliente transferido a nuevo asesor: ${cliente.nombre}`);
+
+    res.json({ message: 'Cliente transferido correctamente', cliente });
+  } catch (err) {
+    console.error('Error transferring client:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 // ────────────────────────────── Session Counter Management
 router.put("/:id/sesiones-counter", async (req, res) => {
