@@ -3,6 +3,7 @@ const Template = require('../models/Template');
 const Cliente = require('../models/Cliente');
 const Message = require('../models/Message');
 const Conversation = require('../models/Conversation');
+const Dieta = require('../models/Dieta');
 const { sendEmail } = require('./notifier');
 
 /**
@@ -157,7 +158,144 @@ async function executeAction(action, { cliente, advisorId, data }) {
   } else if (action.type === 'SEND_SMS') {
        // Stub for SMS - requires Twilio or similar
        console.log(`[Automation] SMS (Mock): ${content} to ${cliente?.telefono}`);
+  } else if (action.type === 'SEND_SHOPPING_LIST') {
+      if (!cliente) return;
+      await handleSendShoppingList(action, cliente, advisorId);
   }
+}
+
+/**
+ * Logic to generate and send shopping list
+ */
+async function handleSendShoppingList(action, cliente, advisorId) {
+    try {
+        // 1. Get current diet
+        const diet = await Dieta.findOne({ 
+            clienteId: cliente._id, 
+            isCurrent: true,
+            estado: { $ne: 'archivada' }
+        }).populate({
+            path: "comidas.opciones.recetaId",
+            populate: {
+                path: "ingredientes.ingrediente",
+                select: "nombre tipo",
+            },
+        }).populate("comidas.opciones.ingredienteId", "nombre tipo")
+          .populate("comidas.opciones.items.ingredienteId", "nombre tipo")
+          .lean();
+
+        if (!diet) {
+            console.log(`[Automation] No current diet found for ${cliente.nombre}. Skipping shopping list.`);
+            return;
+        }
+
+        // 2. Aggregate ingredients
+        const periodo = action.metadata?.periodo || 'semanal';
+        let multiplier = periodo === 'mensual' ? 30 : 7;
+        
+        const ingredientsMap = {};
+        diet.comidas.forEach(comida => {
+            const numOptions = (comida.opciones && comida.opciones.length > 0) ? comida.opciones.length : 1;
+            const optionMultiplier = multiplier / numOptions;
+
+            comida.opciones.forEach(opcion => {
+                if (opcion.tipo === 'ingrediente') {
+                    const ing = opcion.ingredienteId;
+                    const name = ing?.nombre || opcion.nombre;
+                    const grams = (opcion.gramos || 0) * optionMultiplier;
+                    const category = ing?.tipo || "General";
+                    _aggregate(ingredientsMap, name, grams, category);
+                } else if (opcion.tipo === 'combinacion') {
+                    opcion.items.forEach(item => {
+                        const ing = item.ingredienteId;
+                        const name = ing?.nombre || item.nombre;
+                        const grams = (item.gramos || 0) * optionMultiplier;
+                        const category = ing?.tipo || "General";
+                        _aggregate(ingredientsMap, name, grams, category);
+                    });
+                } else if (opcion.tipo === 'receta' && opcion.recetaId) {
+                    opcion.recetaId.ingredientes.forEach(ri => {
+                        const ing = ri.ingrediente;
+                        const name = ing?.nombre || "Ingrediente Desconocido";
+                        const grams = (ri.gramos || 0) * optionMultiplier;
+                        const category = ing?.tipo || "General";
+                        _aggregate(ingredientsMap, name, grams, category);
+                    });
+                }
+            });
+        });
+
+        const ingredients = Object.values(ingredientsMap).sort((a, b) => a.category.localeCompare(b.category));
+        if (ingredients.length === 0) return;
+
+        // 3. Format Message
+        let message = `🛒 *LISTA DE LA COMPRA (${periodo.toUpperCase()})*\n`;
+        message += `Plan: ${diet.nombre}\n\n`;
+
+        let currentCat = "";
+        ingredients.forEach(ing => {
+            if (ing.category !== currentCat) {
+                currentCat = ing.category;
+                message += `\n*${currentCat.toUpperCase()}*\n`;
+            }
+            const qty = _formatGrams(ing.grams);
+            message += `• ${ing.name}: ${qty}\n`;
+        });
+
+        // 4. Send
+        const channel = action.metadata?.channel || 'CHAT';
+        if (channel === 'EMAIL' && cliente.email) {
+            await sendEmail({
+                to: cliente.email,
+                subject: `Tu Lista de la Compra ${periodo === 'mensual' ? 'Mensual' : 'Semanal'}`,
+                html: message.replace(/\n/g, '<br>').replace(/\*(.*?)\*/g, '<b>$1</b>')
+            });
+        } else {
+            // Default to Chat
+            await sendToChat(advisorId, cliente._id, message);
+        }
+
+        console.log(`[Automation] Shopping list sent to ${cliente.nombre} via ${channel}`);
+
+    } catch (e) {
+        console.error(`[Automation] Error in handleSendShoppingList:`, e);
+    }
+}
+
+async function sendToChat(advisorId, clientId, text) {
+    let conv = await Conversation.findOne({ asesorId: advisorId, clienteId: clientId });
+    if (!conv) {
+        conv = await Conversation.create({ asesorId: advisorId, clienteId: clientId, lastMessage: text, lastMessageAt: Date.now() });
+    }
+
+    const newMessage = new Message({
+        conversationId: conv._id,
+        senderType: 'ASESOR',
+        senderId: advisorId,
+        text: text
+    });
+    await newMessage.save();
+
+    conv.lastMessage = text;
+    conv.lastMessageAt = Date.now();
+    if (!conv.unreadCounts) conv.unreadCounts = new Map();
+    const currentCount = conv.unreadCounts.get(clientId.toString()) || 0;
+    conv.unreadCounts.set(clientId.toString(), currentCount + 1);
+    await conv.save();
+}
+
+function _aggregate(map, name, grams, category) {
+    if (!name) return;
+    if (!map[name]) map[name] = { name, grams: 0, category };
+    map[name].grams += grams;
+}
+
+function _formatGrams(grams) {
+    if (grams >= 1000) {
+        const kg = grams / 1000;
+        return `${kg.toFixed(kg % 1 === 0 ? 0 : 1)} kg`;
+    }
+    return `${Math.round(grams)} g`;
 }
 
 /**
