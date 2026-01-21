@@ -309,3 +309,70 @@ exports.getLastDietForClient = async (req, res) => {
     return res.status(400).json({ error: e.message });
   }
 };
+
+/** GET /api/dietas/:id/shopping-list */
+exports.getShoppingList = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const doc = await Dieta.findById(id)
+      .populate({
+        path: "comidas.opciones.recetaId",
+        populate: {
+          path: "ingredientes.ingrediente",
+          select: "nombre tipo",
+        },
+      })
+      .populate("comidas.opciones.ingredienteId", "nombre tipo")
+      .populate("comidas.opciones.items.ingredienteId", "nombre tipo")
+      .lean();
+
+    if (!doc) return res.status(404).json({ error: "Dieta no encontrada" });
+
+    const ingredientsMap = {};
+
+    doc.comidas.forEach(comida => {
+      comida.opciones.forEach(opcion => {
+        if (opcion.tipo === 'ingrediente') {
+            const ing = opcion.ingredienteId;
+            const name = ing?.nombre || opcion.nombre;
+            const grams = opcion.gramos || 0;
+            const category = ing?.tipo || "General";
+            
+            _aggregate(ingredientsMap, name, grams, category);
+        } else if (opcion.tipo === 'combinacion') {
+            opcion.items.forEach(item => {
+                const ing = item.ingredienteId;
+                const name = ing?.nombre || item.nombre;
+                const grams = item.gramos || 0;
+                const category = ing?.tipo || "General";
+                
+                _aggregate(ingredientsMap, name, grams, category);
+            });
+        } else if (opcion.tipo === 'receta' && opcion.recetaId) {
+            opcion.recetaId.ingredientes.forEach(ri => {
+                const ing = ri.ingrediente;
+                const name = ing?.nombre || "Ingrediente Desconocido";
+                const grams = ri.gramos || 0;
+                const category = ing?.tipo || "General";
+                
+                _aggregate(ingredientsMap, name, grams, category);
+            });
+        }
+      });
+    });
+
+    const result = Object.values(ingredientsMap).sort((a, b) => a.category.localeCompare(b.category));
+    res.json(result);
+  } catch (e) {
+    console.error("Error in getShoppingList:", e);
+    res.status(500).json({ error: e.message });
+  }
+};
+
+function _aggregate(map, name, grams, category) {
+    if (!name) return;
+    if (!map[name]) {
+        map[name] = { name, grams: 0, category };
+    }
+    map[name].grams += grams;
+}
