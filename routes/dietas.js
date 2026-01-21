@@ -23,6 +23,9 @@ router.get("/:id", auth, ctrl.getById);
 // Comidas de una dieta (compat con tu front actual)
 router.get("/:id/comidas", auth, ctrl.getComidas);
 
+// Shopping List
+router.get("/:id/shopping-list", auth, ctrl.getShoppingList);
+
 // Get last diet for a client
 router.get("/cliente/:clienteId/ultima", auth, ctrl.getLastDietForClient);
 
