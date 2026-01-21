@@ -314,6 +314,12 @@ exports.getLastDietForClient = async (req, res) => {
 exports.getShoppingList = async (req, res) => {
   try {
     const { id } = req.params;
+    const { periodo = 'diario' } = req.query;
+
+    let multiplier = 1;
+    if (periodo === 'semanal') multiplier = 7;
+    else if (periodo === 'mensual') multiplier = 30;
+
     const doc = await Dieta.findById(id)
       .populate({
         path: "comidas.opciones.recetaId",
@@ -335,7 +341,7 @@ exports.getShoppingList = async (req, res) => {
         if (opcion.tipo === 'ingrediente') {
             const ing = opcion.ingredienteId;
             const name = ing?.nombre || opcion.nombre;
-            const grams = opcion.gramos || 0;
+            const grams = (opcion.gramos || 0) * multiplier;
             const category = ing?.tipo || "General";
             
             _aggregate(ingredientsMap, name, grams, category);
@@ -343,7 +349,7 @@ exports.getShoppingList = async (req, res) => {
             opcion.items.forEach(item => {
                 const ing = item.ingredienteId;
                 const name = ing?.nombre || item.nombre;
-                const grams = item.gramos || 0;
+                const grams = (item.gramos || 0) * multiplier;
                 const category = ing?.tipo || "General";
                 
                 _aggregate(ingredientsMap, name, grams, category);
@@ -352,7 +358,7 @@ exports.getShoppingList = async (req, res) => {
             opcion.recetaId.ingredientes.forEach(ri => {
                 const ing = ri.ingrediente;
                 const name = ing?.nombre || "Ingrediente Desconocido";
-                const grams = ri.gramos || 0;
+                const grams = (ri.gramos || 0) * multiplier;
                 const category = ing?.tipo || "General";
                 
                 _aggregate(ingredientsMap, name, grams, category);
