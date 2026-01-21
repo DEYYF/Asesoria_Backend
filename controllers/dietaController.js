@@ -337,11 +337,14 @@ exports.getShoppingList = async (req, res) => {
     const ingredientsMap = {};
 
     doc.comidas.forEach(comida => {
+      const numOptions = (comida.opciones && comida.opciones.length > 0) ? comida.opciones.length : 1;
+      const optionMultiplier = multiplier / numOptions;
+
       comida.opciones.forEach(opcion => {
         if (opcion.tipo === 'ingrediente') {
             const ing = opcion.ingredienteId;
             const name = ing?.nombre || opcion.nombre;
-            const grams = (opcion.gramos || 0) * multiplier;
+            const grams = (opcion.gramos || 0) * optionMultiplier;
             const category = ing?.tipo || "General";
             
             _aggregate(ingredientsMap, name, grams, category);
@@ -349,7 +352,7 @@ exports.getShoppingList = async (req, res) => {
             opcion.items.forEach(item => {
                 const ing = item.ingredienteId;
                 const name = ing?.nombre || item.nombre;
-                const grams = (item.gramos || 0) * multiplier;
+                const grams = (item.gramos || 0) * optionMultiplier;
                 const category = ing?.tipo || "General";
                 
                 _aggregate(ingredientsMap, name, grams, category);
@@ -358,7 +361,7 @@ exports.getShoppingList = async (req, res) => {
             opcion.recetaId.ingredientes.forEach(ri => {
                 const ing = ri.ingrediente;
                 const name = ing?.nombre || "Ingrediente Desconocido";
-                const grams = (ri.gramos || 0) * multiplier;
+                const grams = (ri.gramos || 0) * optionMultiplier;
                 const category = ing?.tipo || "General";
                 
                 _aggregate(ingredientsMap, name, grams, category);
