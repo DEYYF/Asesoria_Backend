@@ -54,7 +54,8 @@ const AutomationSchema = new mongoose.Schema({
         'CREATE_TASK',
         'SEND_PUSH_NOTIFICATION',
         'ADD_TAG',
-        'SEND_SMS'
+        'SEND_SMS',
+        'SEND_SHOPPING_LIST'
       ], 
       required: true 
     },
