@@ -80,8 +80,24 @@ exports.obtenerResumen = async (req, res) => {
 
 exports.obtenerMovimientos = async (req, res) => {
     try {
-        const { asesorId, limit = 50, skip = 0, tipo } = req.query;
-        const query = { tipoMovimiento: { $in: ['INGRESO', 'GASTO'] } };
+        const { asesorId, limit = 50, skip = 0, tipo, periodo = 'mensual' } = req.query;
+        
+        const now = new Date();
+        let startDate, endDate;
+
+        if (periodo === 'anual') {
+            startDate = new Date(now.getFullYear(), 0, 1);
+            endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59);
+        } else {
+            // mensual
+            startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+            endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+        }
+
+        const query = { 
+            tipoMovimiento: { $in: ['INGRESO', 'GASTO'] },
+            fecha: { $gte: startDate, $lte: endDate }
+        };
         if (asesorId) query.asesorId = asesorId;
         
         if (tipo) query.tipoMovimiento = tipo;
@@ -133,18 +149,32 @@ exports.eliminarMovimiento = async (req, res) => {
 
 exports.obtenerControlPagos = async (req, res) => {
     try {
-        const { asesorId } = req.query;
+        const { asesorId, periodo = 'mensual' } = req.query;
         // Removed mandatory check to allow Global View
 
+        const now = new Date();
+        let startDate, endDate;
+
+        if (periodo === 'anual') {
+            startDate = new Date(now.getFullYear(), 0, 1);
+            endDate = new Date(now.getFullYear(), 11, 31, 23, 59, 59);
+        } else {
+            // mensual
+            startDate = new Date(now.getFullYear(), now.getMonth(), 1);
+            endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+        }
+
         const Cliente = require('../models/Cliente');
-        const query = { estado: 'Activo' };
+        const query = { 
+            estado: 'Activo',
+            fechaFin: { $gte: startDate, $lte: endDate }
+        };
         if (asesorId) query.asesorId = asesorId;
 
         const clientes = await Cliente.find(query)
             .select('nombre email fechaFin presupuestoActivo')
             .populate('presupuestoActivo', 'estado total createdAt');
 
-        const now = new Date();
         const results = clientes.map(c => {
             let status = 'PENDIENTE'; // Default if no active budget or not paid
             
