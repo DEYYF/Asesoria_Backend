@@ -45,6 +45,10 @@ const PresupuestoSchema = new Schema(
       type: Number, // Porcentaje 0-100
       default: 0,
     },
+    facturaId: {
+      type: Schema.Types.ObjectId,
+      ref: "Factura",
+    },
   },
   { timestamps: true }
 );

@@ -13,6 +13,8 @@ const {
 } = require("../validators/citaSchemas");
 const { sendEmail } = require("../utils/notifier");
 const { triggerAutomations } = require("../utils/automationManager");
+const { syncToGoogle, deleteFromGoogle } = require("../services/googleCalendarService");
+const Usuario = require("../models/Usuario");
 
 const {
   createTarea,
@@ -78,7 +80,7 @@ router.get("/", auth, async (req, res) => {
 // Crear
 router.post("/", auth, async (req, res) => {
   try {
-    const rawId = req.user?._id || req.user?.id || req.body?.asesorId;
+    const rawId = req.body?.asesorId || req.user?._id || req.user?.id;
     const asesorId = Types.ObjectId.isValid(String(rawId))
       ? new Types.ObjectId(String(rawId))
       : String(rawId);
@@ -103,6 +105,7 @@ router.post("/", auth, async (req, res) => {
 
     // ✅ crear tarea asociada
     await createTarea(req, {
+      assigneeId: asesorId, // Aseguramos que se asigne al asesor de la cita
       title: `Cita: ${title}`,
       notes: `Fecha: ${date} ${hora || ""}${
         horaFin ? " - " + horaFin : ""
@@ -123,16 +126,24 @@ router.post("/", auth, async (req, res) => {
 
     const cliente = clienteId ? await Cliente.findById(clienteId).lean() : null;
     const to = cliente?.email;
-    if (to)
-      await sendEmail({
-        to: to,
-        subject: `Nueva cita: ${title} (${date} ${hora || ""})`,
-        text: `Se ha creado una nueva cita.\n\nAsesor ID: ${asesorId}\nTítulo: ${title}\nFecha: ${date}\nHora: ${
-          hora || "N/A"
-        }\nHora fin: ${horaFin || "N/A"}\nCliente ID: ${
-          clienteId || "N/A"
-        }\nCita ID: ${cita._id}\n\n--`,
+    if (to) {
+      const { sendTemplateEmail } = require('../utils/emailTemplates');
+      await sendTemplateEmail(asesorId, 'citaCreated', to, {
+        clienteNombre: cliente.nombre,
+        titulo: title,
+        fecha: date,
+        hora: hora || 'N/A',
+        horaFin: horaFin || 'N/A'
       });
+    }
+
+    // ✅ Sync to Google Calendar
+    try {
+      const user = await Usuario.findById(asesorId);
+      if (user) await syncToGoogle(user, cita);
+    } catch (err) {
+      console.error("Error syncing to Google:", err);
+    }
 
     res.json(cita);
   } catch (e) {
@@ -391,18 +402,15 @@ router.put("/:id", auth, async (req, res) => {
 
     const cliente = clienteId ? await Cliente.findById(clienteId).lean() : null;
     const to = cliente?.email;
-    if (to)
-      await sendEmail({
-        to: to,
-        subject: `Cita modificada: ${title} (${date} ${hora || ""})`,
-        text: `Se ha modificado una cita.\n\nAsesor ID: ${
-          cita.asesorId
-        }\nTítulo: ${title}\nFecha: ${date}\nHora: ${
-          hora || "N/A"
-        }\nHora fin: ${horaFin || "N/A"}\nCliente ID: ${
-          clienteId || "N/A"
-        }\nCita ID: ${cita._id}\n\n--`,
+    if (to) {
+      const { sendTemplateEmail } = require('../utils/emailTemplates');
+      await sendTemplateEmail(cita.asesorId, 'citaUpdated', to, {
+        clienteNombre: cliente.nombre,
+        titulo: title,
+        fecha: date,
+        hora: hora || 'N/A'
       });
+    }
 
     // ✅ actualizar la tarea asociada
     await updateTareaCita(req, cita._id, {
@@ -414,6 +422,14 @@ router.put("/:id", auth, async (req, res) => {
       clientId: clienteId || undefined,
       // status: lo dejamos como esté; se gestiona por asistencia
     });
+
+    // ✅ Sync to Google Calendar
+    try {
+      const user = await Usuario.findById(cita.asesorId);
+      if (user) await syncToGoogle(user, cita);
+    } catch (err) {
+      console.error("Error syncing to Google (update):", err);
+    }
 
     res.json(cita);
   } catch (e) {
@@ -438,6 +454,16 @@ router.delete("/:id", auth, async (req, res) => {
 
     // ✅ borra la tarea asociada
     await deleteTareaCita(req.params.id);
+
+    // ✅ Sync to Google Calendar (Delete)
+    try {
+      if (out.googleEventId) {
+        const user = await Usuario.findById(out.asesorId);
+        if (user) await deleteFromGoogle(user, out.googleEventId);
+      }
+    } catch (err) {
+      console.error("Error deleting from Google:", err);
+    }
 
     res.json({ ok: true });
   } catch (e) {

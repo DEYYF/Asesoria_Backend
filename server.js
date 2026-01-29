@@ -42,7 +42,7 @@ if (process.env.NODE_ENV === 'production') {
         try {
           const jwt = require('jsonwebtoken');
           const decoded = jwt.verify(token, process.env.JWT_SECRET);
-          return `user_${decoded.userId}`;
+          return `user_${decoded.id || decoded.userId || decoded._id}`;
         } catch (err) {
           return req.ip;
         }
@@ -90,6 +90,12 @@ app.use('/api/chat', require('./routes/chatRoutes'));
 app.use('/api/templates', require('./routes/templateRoutes'));
 app.use('/api/automations', require('./routes/automationRoutes'));
 app.use('/api/finanzas', require('./routes/finanzasRoutes'));
+app.use('/api/facturas', require('./routes/facturaRoutes'));
+app.use('/api/google-calendar', require('./routes/googleCalendarRoutes'));
+app.use('/api/despensa', require('./routes/despensa'));
+app.use('/api/smart-insights', require('./routes/smartInsightsRoutes'));
+app.use('/api/gamification', require('./routes/gamificationRoutes'));
+
 
 
 /* 404 explícito */
@@ -113,6 +119,7 @@ const server = http.createServer(app);
 const io = new Server(server, {
   cors: { origin: true, credentials: true }
 });
+app.set('io', io);
 
 // Socket.io Middleware for Auth
 io.use((socket, next) => {

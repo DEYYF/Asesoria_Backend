@@ -13,7 +13,8 @@ const CitaSchema = new mongoose.Schema(
     reminder24Sent: { type: Boolean, default: false },
     reminder2hSent: { type: Boolean, default: false },
     asistio: { type: Boolean, default: null },
-    asistio_cliente: { type: Boolean, default: null }
+    asistio_cliente: { type: Boolean, default: null },
+    googleEventId: { type: String }
   },
   { timestamps: true }
 );

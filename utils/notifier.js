@@ -59,18 +59,30 @@ async function processRemindersForOffset(daysOffset = 0) {
     const to = getClienteEmail(cliente);
     if (!to) continue;
 
-    const hora = c.hora || c.hour || c.time || "";
-    const asunto = (c.asunto || c.titulo || `Recordatorio de cita ${whenWord}`).trim();
+    // Obtener asesor para buscar template
+    const asesorId = cliente?.asesorId || c.asesorId;
+    
+    if (asesorId) {
+        const { sendTemplateEmail } = require('./emailTemplates');
+        await sendTemplateEmail(asesorId, 'citaReminder', to, {
+            clienteNombre: cliente?.nombre || 'Cliente',
+            titulo: c.asunto || c.titulo || 'Cita',
+            fecha: target,
+            hora: c.hora || c.hour || c.time || 'N/A'
+        });
+    } else {
+        // Fallback si no hay asesor (legacy)
+        const hora = c.hora || c.hour || c.time || "";
+        const asunto = (c.asunto || c.titulo || `Recordatorio de cita ${whenWord}`).trim();
+        const texto = c.mensaje || `Hola ${cliente?.nombre || ""}, recuerda tu cita ${whenWord}${hora ? ` a las ${hora}` : ""}.`;
 
-    const texto =
-      c.mensaje ||
-      `Hola ${cliente?.nombre || ""}, recuerda tu cita ${whenWord}${hora ? ` a las ${hora}` : ""}.`;
-
-    await sendEmail({
-      to,
-      subject: asunto + (daysOffset === 1 && !/mañana/i.test(asunto) ? " (mañana)" : ""),
-      text: texto,
-    });
+        await sendEmail({
+            to,
+            subject: asunto + (daysOffset === 1 && !/mañana/i.test(asunto) ? " (mañana)" : ""),
+            text: texto,
+        });
+    }
+    
     count++;
   }
 

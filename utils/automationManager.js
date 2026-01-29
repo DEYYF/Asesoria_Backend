@@ -159,8 +159,51 @@ async function executeAction(action, { cliente, advisorId, data }) {
        // Stub for SMS - requires Twilio or similar
        console.log(`[Automation] SMS (Mock): ${content} to ${cliente?.telefono}`);
   } else if (action.type === 'SEND_SHOPPING_LIST') {
-      if (!cliente) return;
-      await handleSendShoppingList(action, cliente, advisorId);
+      if (cliente) {
+        await handleSendShoppingList(action, cliente, advisorId);
+      }
+  } else if (action.type === 'AUTO_ADJUST_MACROS') {
+      if (cliente) {
+        const { suggestMacroAdjustment } = require('./intelligenceManager');
+        const suggestion = await suggestMacroAdjustment(cliente._id);
+        if (suggestion) {
+          const Dieta = require('../models/Dieta');
+          const currentDiet = await Dieta.findOne({ clienteId: cliente._id, isCurrent: true });
+          if (currentDiet) {
+            const newDietData = {
+              ...currentDiet.toObject(),
+              _id: undefined,
+              macros: suggestion.suggestedMacros,
+              rev: currentDiet.rev + 1,
+              note: `Ajuste automático por estancamiento (${suggestion.objective})`,
+              createdAt: undefined,
+              updatedAt: undefined
+            };
+            currentDiet.isCurrent = false;
+            await currentDiet.save();
+            const newDiet = new Dieta(newDietData);
+            await newDiet.save();
+            console.log(`[Intelligence] Auto-adjusted macros for ${cliente.nombre}`);
+          }
+        }
+      }
+  } else if (action.type === 'SUGGEST_PROGRESSION') {
+      if (cliente && data.registroId) {
+        const { analyzeWorkoutProgression } = require('./intelligenceManager');
+        const suggestions = await analyzeWorkoutProgression(data.registroId);
+        if (suggestions.length > 0) {
+          const Task = require('../models/Tarea');
+          const suggestionText = suggestions.map(s => `• ${s.ejercicio}: ${s.suggestion} (${s.reason})`).join('\n');
+          await Task.create({
+            asesorId: advisorId,
+            clienteId: cliente._id,
+            titulo: `Sugerencia de Progresión: ${cliente.nombre}`,
+            descripcion: `Basado en el último entrenamiento:\n${suggestionText}`,
+            estado: 'PENDIENTE'
+          });
+          console.log(`[Intelligence] Progression suggestions created for ${cliente.nombre}`);
+        }
+      }
   }
 }
 
@@ -392,7 +435,7 @@ async function checkDailyTriggers(today) {
     const dailyAutomations = await Automation.find({
         active: true,
         type: 'EVENT',
-        trigger: { $in: ['PLAN_EXPIRED', 'BIRTHDAY', 'INACTIVE_7_DAYS', 'PLAN_EXPIRING_3_DAYS'] }
+        trigger: { $in: ['PLAN_EXPIRED', 'BIRTHDAY', 'INACTIVE_7_DAYS', 'PLAN_EXPIRING_3_DAYS', 'PROGRESS_STALLED'] }
     }).populate('actions.templateId');
 
     if (dailyAutomations.length === 0) return;
@@ -405,9 +448,9 @@ async function checkDailyTriggers(today) {
         
         let targetClients = [];
         if (auto.allClients) {
-            targetClients = allClients.filter(c => c.asesorId === auto.advisorId);
+            targetClients = allClients.filter(c => c.asesorId && c.asesorId.toString() === auto.advisorId.toString());
         } else {
-            targetClients = allClients.filter(c => auto.targetClientIds.includes(c._id.toString()));
+            targetClients = allClients.filter(c => auto.targetClientIds.some(id => id.toString() === c._id.toString()));
         }
 
         for (const client of targetClients) {
@@ -442,6 +485,15 @@ async function checkDailyTriggers(today) {
                  const diffTime = Math.abs(today - lastActive);
                  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
                  if (diffDays === 7) {
+                     shouldTrigger = true;
+                 }
+             }
+
+             // Rule: PROGRESS_STALLED
+             if (auto.trigger === 'PROGRESS_STALLED') {
+                 const { analyzeStall } = require('./intelligenceManager');
+                 const stall = await analyzeStall(client._id);
+                 if (stall) {
                      shouldTrigger = true;
                  }
              }

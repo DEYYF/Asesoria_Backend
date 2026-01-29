@@ -23,18 +23,24 @@ function buildFilter(req, citaId) {
   return f;
 }
 
-/** Crear tarea asociada a una cita */
+/** Crear tarea asociada a una cita o manual */
 async function createTarea(req, payload = {}) {
-  const asesorId = resolveAsesorId(req);
+  // Prioritize payload.assigneeId (explicit) over req resolution
+  const assigneeId =
+    payload.assigneeId || payload.asesorId || resolveAsesorId(req);
+  const createdBy = req.user?._id || req.user?.id;
+
   const tarea = await Tarea.create({
-    asesorId,
+    assigneeId,
+    createdBy,
     title: payload.title || "",
     notes: payload.notes || "",
-    status: payload.status || "pending", // pending | done | canceled | ...
-    dueAt: payload.dueAt || undefined,   // puede ser 'YYYY-MM-DD' o Date
-    origin: payload.origin || "cita",
+    status: payload.status || "pending",
+    dueAt: payload.dueAt || undefined,
+    origin: payload.origin || "manual",
     clientId: payload.clientId || undefined,
-    metadata: { ...(payload.metadata || {}) }, // { citaId, ... }
+    clientName: payload.clientName || undefined,
+    metadata: { ...(payload.metadata || {}) },
   });
   return tarea;
 }

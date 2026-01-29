@@ -25,7 +25,10 @@ router.get('/', async (req, res) => {
     if (effectiveAssigneeId) filter.assigneeId = effectiveAssigneeId;
     if (clientId) filter.clientId = clientId;
 
-    const tareas = await Tarea.find(filter).sort({ createdAt: -1 });
+    const tareas = await Tarea.find(filter)
+      .populate("createdBy", "nombre")
+      .populate("assigneeId", "nombre")
+      .sort({ createdAt: -1 });
     res.json(tareas);
   } catch (e) {
     res.status(500).json({ error: e.message });

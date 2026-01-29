@@ -22,6 +22,12 @@ const clienteSchema = new mongoose.Schema({
       }]
     }
   ],
+  // Datos para facturación
+  nif: { type: String },
+  direccion: { type: String },
+  codigoPostal: { type: String },
+  ciudad: { type: String },
+  provincia: { type: String },
   createdAt: { type: Date, default: Date.now },
   Tarifa: { type: String }, // Nombre de la tarifa (cache)
   Tiempo_Tarifa: { type: String }, // Duración legible (cache)
@@ -55,6 +61,19 @@ const clienteSchema = new mongoose.Schema({
 
   // Estado manual (Baja = soft delete)
   estado: { type: String, enum: ["Activo", "Baja"], default: "Activo" },
+
+  // Gamification & Rankings
+  gamification: {
+    points: { type: Number, default: 0 },
+    level: { type: Number, default: 1 },
+    currentStreak: { type: Number, default: 0 },
+    lastActivityDate: { type: Date },
+    history: [{
+      action: String, // WORKOUT, PROGRESS, etc.
+      points: Number,
+      date: { type: Date, default: Date.now }
+    }]
+  }
 
 
 }, { timestamps: true }); // Agregar timestamps automáticos

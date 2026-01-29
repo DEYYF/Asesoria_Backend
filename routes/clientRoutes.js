@@ -11,6 +11,36 @@ const { z } = require("zod");
 const Presupuesto = require("../models/Presuspuesto");
 const Tarifa = require("../models/Tarifa");
 const authMiddleware = require("../middlewares/authMiddleware");
+const bcrypt = require("bcrypt");
+const intelligenceService = require("../services/intelligenceService");
+
+
+// ────────────────────────────── Intelligent Insights (AI Analysis)
+router.get("/:id/intelligent-insights", authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const isSuperAdmin = req.user?.role === 'superadmin';
+
+    // Verify client exists and belongs to advisor
+    const cliente = await Cliente.findById(id);
+    if (!cliente) {
+      return res.status(404).json({ error: "Cliente no encontrado" });
+    }
+
+    // Authorization: only owner advisor or superadmin
+    if (!isSuperAdmin && cliente.asesorId.toString() !== req.user.id) {
+      return res.status(403).json({ error: "No autorizado" });
+    }
+
+    // Run AI analysis
+    const insights = await intelligenceService.analyzeClientProgress(id);
+    
+    res.json(insights);
+  } catch (err) {
+    console.error("Error generating intelligent insights:", err);
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ────────────────────────────── Obtener estado del presupuesto de un cliente
 router.get("/:id/budget-status", authMiddleware, async (req, res) => {
@@ -246,11 +276,25 @@ router.put("/:id/actualizar-tarifa", async (req, res) => {
     
     // Calcular meses basado en duracionDias de la tarifa
     const duracionDias = tarifaDoc.duracionDias || 30;
-    const meses = Math.ceil(duracionDias / 30);
     
+    // Determine logical months for cleaner dates
+    let monthsToAdd = 0;
+    if (duracionDias >= 360) monthsToAdd = 12;      // Annual
+    else if (duracionDias >= 180) monthsToAdd = 6;  // Semestral
+    else if (duracionDias >= 90) monthsToAdd = 3;   // Trimestral
+    else if (duracionDias >= 28) monthsToAdd = 1;   // Mensual
+    
+    // Helper to calc cost multiplier (months) - Needed for calculation below
+    const meses = Math.ceil(duracionDias / 30);
+
     const fechaInicio = new Date();
     const fechaFin = new Date(fechaInicio);
-    fechaFin.setDate(fechaFin.getDate() + duracionDias);
+    
+    if (monthsToAdd > 0) {
+      fechaFin.setMonth(fechaFin.getMonth() + monthsToAdd);
+    } else {
+      fechaFin.setDate(fechaFin.getDate() + duracionDias);
+    }
 
     // Copiar extras del presupuesto anterior
     let extrasDetallados = [];
@@ -319,11 +363,25 @@ router.put("/:id/tarifa", async (req, res) => {
 
     // Calcular meses basado en duracionDias de la tarifa
     const duracionDias = tarifaDoc.duracionDias || 30;
+    
+    // Determine logical months for cleaner dates
+    let monthsToAdd = 0;
+    if (duracionDias >= 360) monthsToAdd = 12;      // Annual
+    else if (duracionDias >= 180) monthsToAdd = 6;  // Semestral
+    else if (duracionDias >= 90) monthsToAdd = 3;   // Trimestral
+    else if (duracionDias >= 28) monthsToAdd = 1;   // Mensual
+    
+    // Helper to calc cost multiplier (months)
     const meses = Math.ceil(duracionDias / 30);
     
     const fechaInicio = new Date();
     const fechaFin = new Date(fechaInicio);
-    fechaFin.setDate(fechaFin.getDate() + duracionDias);
+    
+    if (monthsToAdd > 0) {
+      fechaFin.setMonth(fechaFin.getMonth() + monthsToAdd);
+    } else {
+      fechaFin.setDate(fechaFin.getDate() + duracionDias);
+    }
 
     // Obtener el último presupuesto del cliente para copiar los extras
     const ultimoPresupuesto = await Presupuesto.findOne({ clienteId: id })
@@ -503,6 +561,10 @@ router.put("/:id/historial", async (req, res) => {
       });
     }
 
+    // Award Gamification Points
+    const { awardPoints } = require("../utils/gamificationManager");
+    await awardPoints(cliente._id, 'PROGRESS_UPDATED');
+
     res.json(cliente);
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -521,6 +583,46 @@ router.get("/:id", async (req, res) => {
     res.json(cliente);
   } catch (err) {
     res.status(400).json({ error: err.message });
+  }
+});
+
+// ────────────────────────────── Cambiar contraseña del cliente (Solo asesores)
+router.put("/:id/password", authMiddleware, async (req, res) => {
+  try {
+    const isAdvisor = req.user?.role === 'advisor' || req.user?.role === 'superadmin';
+    if (!isAdvisor) {
+      return res.status(403).json({ error: "No tienes permiso para realizar esta acción" });
+    }
+
+    const { id } = req.params;
+    const { newPassword } = req.body;
+
+    if (!newPassword || newPassword.length < 6) {
+      return res.status(400).json({ error: "La contraseña debe tener al menos 6 caracteres" });
+    }
+
+    const cliente = await Cliente.findById(id);
+    if (!cliente) return res.status(404).json({ error: "Cliente no encontrado" });
+
+    // Si ya tiene password, comprobar que no sea la misma
+    if (cliente.password) {
+      const isMatch = await bcrypt.compare(newPassword, cliente.password);
+      if (isMatch) {
+        return res.status(400).json({ error: "La nueva contraseña no puede ser igual a la anterior" });
+      }
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    cliente.password = hashedPassword;
+    await cliente.save();
+
+    req.body.asesorId = req.user?._id || req.user?.id;
+    req.body.tipo = "EDITAR";
+    await logMovimiento(req, `Contraseña de cliente actualizada: ${cliente.nombre}`);
+
+    res.json({ message: "Contraseña actualizada correctamente" });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 
@@ -908,5 +1010,34 @@ router.get("/asesor/:asesorId", async (req, res) => {
 
 
 
+
+// ✅ Eliminar todo el historial de progreso de un cliente (Advisors only)
+router.delete("/:id/progress/all", authMiddleware, async (req, res) => {
+    try {
+        const { id } = req.params;
+        const isAdvisor = req.user?.role === 'advisor' || req.user?.role === 'superadmin';
+        
+        if (!isAdvisor) {
+            return res.status(403).json({ error: "No tienes permiso para realizar esta acción" });
+        }
+
+        const cliente = await Cliente.findByIdAndUpdate(
+            id,
+            { $set: { historialProgreso: [] } },
+            { new: true }
+        );
+
+        if (!cliente) return res.status(404).json({ error: "Cliente no encontrado" });
+
+        // Log movement
+        req.body.asesorId = req.user?._id || req.user?.id;
+        req.body.tipo = 'BORRAR';
+        await logMovimiento(`Limpieza de progreso corporal para cliente: ${cliente.nombre}`, req);
+
+        res.json({ message: "Historial de progreso eliminado correctamente", cliente });
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 
 module.exports = router;

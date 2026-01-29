@@ -25,7 +25,9 @@ const AutomationSchema = new mongoose.Schema({
       'APPOINTMENT_CONFIRMED',
       'APPOINTMENT_CANCELLED',
       'PROGRESS_RECORDED',
-      'WORKOUT_COMPLETED'
+      'WORKOUT_COMPLETED',
+      'PROGRESS_STALLED',
+      'PROGRESS_STAGNATED_3_WEEKS'
     ]
   },
 
@@ -55,7 +57,9 @@ const AutomationSchema = new mongoose.Schema({
         'SEND_PUSH_NOTIFICATION',
         'ADD_TAG',
         'SEND_SMS',
-        'SEND_SHOPPING_LIST'
+        'SEND_SHOPPING_LIST',
+        'AUTO_ADJUST_MACROS',
+        'SUGGEST_PROGRESSION'
       ], 
       required: true 
     },
