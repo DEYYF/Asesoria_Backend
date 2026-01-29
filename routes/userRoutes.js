@@ -244,6 +244,14 @@ router.put('/:id', authMiddleware, async (req, res) => {
 
     const updateData = { nombre, email, role, settings, calendarSettings };
     if (password && password.trim().length > 0) {
+      const userToUpdate = await Usuario.findById(req.params.id);
+      if (!userToUpdate) return res.status(404).json({ error: 'Usuario no encontrado' });
+
+      const isSamePassword = await bcrypt.compare(password, userToUpdate.password);
+      if (isSamePassword) {
+        return res.status(400).json({ error: 'La nueva contraseña no puede ser igual a la anterior' });
+      }
+
       updateData.password = await bcrypt.hash(password, 10);
     }
 

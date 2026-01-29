@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const mongoose = require("mongoose");
 const Entrenamiento = require("../models/Entrenamiento");
+const EntrenamientoRegistro = require("../models/EntrenamientoRegistro");
 const { logMovimiento } = require('../utils/logMovimiento');
 
 // ✅ Crear
@@ -121,6 +122,7 @@ router.get("/:id", async (req, res) => {
       return res.status(400).json({ error: "ID inválido" });
     }
     const doc = await Entrenamiento.findById(id)
+      .populate("clienteId", "nombre email")
       .populate({
         path: "semanas.dias.items.ejercicio",
         select: "nombre grupo equipo nivel urlVideo instrucciones",
@@ -165,7 +167,7 @@ router.delete("/:id", async (req, res) => {
 });
 
 
-// GET /entrenamientos/ultimo?asesor=:id
+// GET /entrenamientos/ultimo?asesor=:id (Existente)
 router.get('/ultimo', async (req, res) => {
   try {
     const { asesorId } = req.params;
@@ -190,9 +192,69 @@ router.get('/ultimo', async (req, res) => {
   }
 });
 
+// GET /entrenamientos/cliente/:clienteId/ultimo (NUEVO)
+router.get("/cliente/:clienteId/ultimo", async (req, res) => {
+    try {
+        const { clienteId } = req.params;
+        const ultima = await Entrenamiento.findOne({ clienteId: clienteId })
+            .sort({ createdAt: -1, _id: -1 })
+            .populate({
+                path: "semanas.dias.items.ejercicio",
+                select: "nombre grupo equipo nivel urlVideo instrucciones",
+            })
+            .lean();
+        if (!ultima) return res.json(null);
+        res.json(ultima);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// GET /entrenamientos/registros/cliente/:clienteId/historial-completo (NUEVO)
+router.get("/registros/cliente/:clienteId/historial-completo", async (req, res) => {
+    try {
+        const { clienteId } = req.params;
+        const logs = await EntrenamientoRegistro.find({ clienteId }).sort({ fecha: 1 }).lean();
+        
+        const result = {};
+        logs.forEach(log => {
+            log.ejercicios.forEach(target => {
+                const exerciseName = target.ejercicioNombre;
+                if (!exerciseName) return;
+                
+                if (!result[exerciseName]) result[exerciseName] = [];
+                
+                let max1RM = 0;
+                let maxWeight = 0;
+                let totalVolume = 0;
+                let maxReps = 0;
+                
+                target.series.forEach(s => {
+                    const w = s.peso || 0;
+                    const r = s.reps || 0;
+                    if (w > maxWeight) maxWeight = w;
+                    if (r > maxReps) maxReps = r;
+                    totalVolume += w * r;
+                    const e1rm = w * (1 + r/30);
+                    if (e1rm > max1RM) max1RM = e1rm;
+                });
+
+                result[exerciseName].push({
+                    fecha: log.fecha,
+                    maxWeight,
+                    estimated1RM: max1RM,
+                    totalVolume,
+                    maxReps
+                });
+            });
+        });
+        res.json(result);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
 
 
-const EntrenamientoRegistro = require("../models/EntrenamientoRegistro");
 
 // ✅ Crear Registro (Notebook)
 router.post("/registros", async (req, res) => {
@@ -202,6 +264,9 @@ router.post("/registros", async (req, res) => {
     // Automation: WORKOUT_COMPLETED
     if (doc.clienteId) {
       const { triggerAutomations } = require("../utils/automationManager");
+      const { awardPoints } = require("../utils/gamificationManager");
+      
+      // 1. Trigger Automations
       const entrenamiento = await Entrenamiento.findById(doc.entrenamientoId).select('asesorid').lean();
       if (entrenamiento && entrenamiento.asesorid) {
         await triggerAutomations('WORKOUT_COMPLETED', {
@@ -210,6 +275,9 @@ router.post("/registros", async (req, res) => {
           data: { registroId: doc._id, entrenamientoId: doc.entrenamientoId }
         });
       }
+
+      // 2. Award Gamification Points
+      await awardPoints(doc.clienteId, 'WORKOUT_COMPLETED');
     }
     
     res.status(201).json(doc);
@@ -402,6 +470,30 @@ router.get("/registros/cliente/:clienteId/fechas-medidas", async (req, res) => {
             }));
 
         res.json(dates);
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+});
+
+// ✅ Eliminar todos los registros de un cliente (Advisors only)
+router.delete("/registros/cliente/:clienteId/all", async (req, res) => {
+    try {
+        const { clienteId } = req.params;
+        // Check if user is advisor or superadmin (assuming authMiddleware is applied or req.user is populated)
+        const isAdvisor = req.user?.role === 'advisor' || req.user?.role === 'superadmin' || req.user?.type !== 'client';
+        
+        if (!isAdvisor) {
+            return res.status(403).json({ error: "No tienes permiso para realizar esta acción" });
+        }
+
+        await EntrenamientoRegistro.deleteMany({ clienteId });
+        
+        // Log movement
+        req.body.asesorId = req.user?._id || req.user?.id;
+        req.body.tipo = 'BORRAR';
+        await logMovimiento(`Limpieza de libreta/rendimiento para cliente ID: ${clienteId}`, req);
+
+        res.json({ message: "Registros eliminados correctamente" });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }

@@ -23,15 +23,15 @@ const TarifaSchema = new mongoose.Schema(
       type: String,
       required: true,
       enum: [
-        "Dieta",
-        "Dieta y asesoramiento",
-        "Rutina",
-        "Rutina y asesoramiento",
-        "Dieta y Rutina",
         "Mensual",
         "Trimestral",
         "Semestral",
-        "Anual"
+        "Anual",
+        "Dieta",
+        "Dieta y Asesoramiento",
+        "Rutina",
+        "Rutina y asesoramiento",
+        "Dieta y Rutina"
       ],
     },
     activo: {

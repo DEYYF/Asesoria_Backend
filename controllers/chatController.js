@@ -224,3 +224,59 @@ exports.markAsRead = async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 };
+
+// Delete a message
+exports.deleteMessage = async (req, res) => {
+  try {
+    const { messageId } = req.params;
+    const userId = req.user.id;
+
+    const message = await Message.findById(messageId);
+    if (!message) return res.status(404).json({ error: 'Message not found' });
+
+    // Authorization: Only sender can delete (or admin, but let's stick to sender for now)
+    if (message.senderId.toString() !== userId) {
+      return res.status(403).json({ error: 'Not authorized to delete this message' });
+    }
+
+    const conversationId = message.conversationId;
+    await Message.findByIdAndDelete(messageId);
+
+    // Update Conversation's lastMessage if needed
+    const conversation = await Conversation.findById(conversationId);
+    if (conversation) {
+        // Check if we need to update the last message cache
+        // We just fetch the latest message now
+        const lastMsg = await Message.findOne({ conversationId })
+            .sort({ createdAt: -1 });
+        
+        if (lastMsg) {
+            conversation.lastMessage = lastMsg.text;
+            conversation.lastMessageAt = lastMsg.createdAt;
+        } else {
+            conversation.lastMessage = '';
+            conversation.lastMessageAt = conversation.createdAt; // or null
+        }
+        await conversation.save();
+    }
+
+    // Attempt to emit socket event if io is available on app
+    const io = req.app.get('io');
+    if (io) {
+        const participants = [
+            conversation.asesorId?.toString(),
+            conversation.clienteId?.toString(),
+            conversation.recipientAsesorId?.toString()
+        ].filter(id => id); // Filter out null/undefined
+
+        participants.forEach(participantId => {
+            io.to(participantId).emit('messageDeleted', { messageId, conversationId });
+        });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting message:', error);
+    res.status(500).json({ error: error.message });
+  }
+};

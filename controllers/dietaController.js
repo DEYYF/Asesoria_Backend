@@ -1,7 +1,10 @@
 // controllers/dietasController.js
 const mongoose = require("mongoose");
 const Dieta = require("../models/Dieta");
+const Despensa = require("../models/Despensa");
+const { getNormalizedName, getSuggestedCategory } = require("../utils/ingredientCategorizer");
 const { calculateDietMacros } = require("../utils/dietMacrosCalculator");
+
 
 /** Util: limpiar campos de versionado del payload entrante */
 function stripVersioning(input = {}) {
@@ -66,6 +69,7 @@ exports.create = async (req, res) => {
 exports.getById = async (req, res) => {
   const { id } = req.params;
   const doc = await Dieta.findById(id)
+    .populate("clienteId", "nombre email")
     .populate({
       path: "comidas.opciones.recetaId",
       populate: {
@@ -370,7 +374,30 @@ exports.getShoppingList = async (req, res) => {
       });
     });
 
-    const result = Object.values(ingredientsMap).sort((a, b) => a.category.localeCompare(b.category));
+    // Fetch client pantry
+    const pantryItems = await Despensa.find({ clienteId: doc.clienteId }).lean();
+    const pantryMap = {};
+    pantryItems.forEach(item => {
+        pantryMap[getNormalizedName(item.nombreIngrediente)] = item.cantidad || 0;
+    });
+
+    // Apply pantry filtering and synonym mapping
+    const finalElements = Object.values(ingredientsMap).map(ing => {
+        const normName = getNormalizedName(ing.name);
+        const inPantry = pantryMap[normName] !== undefined;
+        
+        return {
+            ...ing,
+            inPantry,
+            pantryQty: pantryMap[normName] || 0,
+            // Si está en la despensa, podríamos sugerir comprar menos, 
+            // pero por ahora solo marcamos que está "disponible"
+            suggestedCategory: getSuggestedCategory(ing.name)
+        };
+    });
+
+    const result = finalElements.sort((a, b) => a.category.localeCompare(b.category));
+
     res.json(result);
   } catch (e) {
     console.error("Error in getShoppingList:", e);

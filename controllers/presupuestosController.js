@@ -251,7 +251,89 @@ exports.actualizarPresupuesto = async (req, res) => {
             email: presupuesto.emailCliente
           });
       } else if (estado === "aceptado") {
-          // Automation Trigger (just in case it wasn't triggered elsewhere, usually handled on creation if accepted immediately, but this covers updates)
+          // AUTO-CREATE INVOICE FROM BUDGET
+          if (!presupuesto.facturaId) {
+            const Factura = require('../models/Factura');
+            const Cliente = require('../models/Cliente');
+            const Usuario = require('../models/Usuario');
+            const { sendEmail } = require('../utils/notifier');
+            
+            try {
+              // Get asesor and cliente data
+              const asesor = await Usuario.findById(presupuesto.usuarioId);
+              const cliente = presupuesto.clienteId ? await Cliente.findById(presupuesto.clienteId) : null;
+              
+              // Generate invoice number
+              const numeroFactura = await Factura.generarNumeroFactura();
+              
+              // Create invoice from budget data
+              const factura = await Factura.create({
+                numeroFactura,
+                serie: 'A',
+                asesorId: presupuesto.usuarioId,
+                clienteId: presupuesto.clienteId,
+                fecha: new Date(),
+                vencimiento: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
+                concepto: `Presupuesto Aceptado`,
+                items: [{
+                  descripcion: presupuesto.tarifaId ? presupuesto.tarifaId.nombre : 'Servicio',
+                  cantidad: 1,
+                  precioUnitario: presupuesto.total,
+                  iva: 21,
+                  descuento: 0,
+                  total: presupuesto.total * 1.21
+                }],
+                metodoPago: 'transferencia',
+                presupuestoId: presupuesto._id,
+                datosEmisor: {
+                  nombre: asesor?.nombre || 'Asesor',
+                  nif: asesor?.nif || 'PENDIENTE',
+                  direccion: asesor?.direccion || 'PENDIENTE',
+                  codigoPostal: asesor?.codigoPostal || 'PENDIENTE',
+                  ciudad: asesor?.ciudad || 'PENDIENTE',
+                  provincia: asesor?.provincia,
+                  telefono: asesor?.telefono,
+                  email: asesor?.email
+                },
+                datosReceptor: {
+                  nombre: cliente?.nombre || presupuesto.nombreCliente || 'Cliente',
+                  nif: cliente?.nif || 'PENDIENTE',
+                  direccion: cliente?.direccion || 'PENDIENTE',
+                  codigoPostal: cliente?.codigoPostal || 'PENDIENTE',
+                  ciudad: cliente?.ciudad || 'PENDIENTE',
+                  provincia: cliente?.provincia
+                },
+                creadoPor: presupuesto.usuarioId
+              });
+              
+              // Link invoice to budget
+              presupuesto.facturaId = factura._id;
+              await presupuesto.save();
+              
+              console.log(`✓ Factura ${numeroFactura} auto-generada para presupuesto ${presupuesto._id}`);
+              
+              // Send email notification
+              if (cliente && cliente.email) {
+                await sendEmail({
+                  to: cliente.email,
+                  subject: 'Factura Generada - Presupuesto Aceptado',
+                  html: `
+                    <h2>Presupuesto Aceptado</h2>
+                    <p>Hola ${cliente.nombre},</p>
+                    <p>Tu presupuesto ha sido aceptado y hemos generado la factura <strong>${numeroFactura}</strong>.</p>
+                    <p><strong>Total:</strong> ${factura.total.toFixed(2)}€</p>
+                    <p><strong>Vencimiento:</strong> ${new Date(factura.vencimiento).toLocaleDateString('es-ES')}</p>
+                    <p>Gracias por tu confianza.</p>
+                  `
+                });
+              }
+            } catch (invoiceError) {
+              console.error('Error creating invoice from budget:', invoiceError);
+              // Don't fail the budget update if invoice creation fails
+            }
+          }
+          
+          // Automation Trigger
           await triggerAutomations('BUDGET_ACCEPTED', {
             advisorId: presupuesto.usuarioId,
             clientId: presupuesto.clienteId,

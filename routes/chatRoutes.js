@@ -9,6 +9,7 @@ router.get('/conversations/:conversationId', authMiddleware, chatController.getC
 router.post('/conversations', authMiddleware, chatController.findOrCreateConversation);
 router.get('/contacts', authMiddleware, chatController.getContacts);
 router.get('/messages/:conversationId', authMiddleware, chatController.getMessages);
+router.delete('/messages/:messageId', authMiddleware, chatController.deleteMessage);
 router.put('/conversations/:conversationId/read', authMiddleware, chatController.markAsRead);
 
 module.exports = router;
