@@ -242,12 +242,17 @@ mongoose.connect(process.env.MONGO_URI, {
 /* ───────── CRON (tus recordatorios) ───────── */
 const cron = require("node-cron");
 const { processReminders, sendDailySummary } = require("./utils/notifier");
-const { processScheduledAutomations } = require("./utils/automationManager");
+const { processScheduledAutomations, processScheduledTasks } = require("./utils/automationManager");
 
-// Recordatorios y Automatizaciones cada 5 min
+// Automatizaciones programadas (diarias/semanales) cada 5 min
 cron.schedule("*/5 * * * *", () => {
-  processReminders();
   processScheduledAutomations();
+});
+
+// Tareas con retraso (Delay Engine) cada minuto
+cron.schedule("* * * * *", () => {
+  processScheduledTasks();
+  processReminders(); // También procesar recordatorios cada minuto para mayor precisión
 });
 
 // Resumen diario 08:00 Europe/Madrid

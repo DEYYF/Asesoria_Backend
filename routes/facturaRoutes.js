@@ -11,6 +11,7 @@ router.post('/', facturaController.createFactura);
 router.get('/', facturaController.getFacturas);
 router.get('/stats', facturaController.getFacturasStats);
 router.get('/:id', facturaController.getFacturaById);
+router.put('/:id', facturaController.updateFactura);
 router.put('/:id/estado', facturaController.updateFacturaEstado);
 router.delete('/:id', facturaController.deleteFactura);
 

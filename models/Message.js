@@ -5,6 +5,11 @@ const MessageSchema = new mongoose.Schema({
   senderType: { type: String, enum: ['ASESOR', 'CLIENTE'], required: true },
   senderId: { type: mongoose.Schema.Types.ObjectId, required: true },
   text: { type: String, required: true },
+  buttons: [{
+    text: String,
+    action: String,
+    payload: mongoose.Schema.Types.Mixed
+  }],
   createdAt: { type: Date, default: Date.now }
 }, { timestamps: true });
 

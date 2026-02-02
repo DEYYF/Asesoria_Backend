@@ -69,7 +69,7 @@ exports.clientLogin = async (req, res) => {
         await cliente.save();
 
         const token = jwt.sign(
-          { id: cliente._id, type: 'client' },
+          { id: cliente._id, role: 'client', type: 'client' },
           process.env.JWT_SECRET,
           { expiresIn: "30d" }
         );
@@ -104,7 +104,7 @@ exports.clientLogin = async (req, res) => {
     }
 
     const token = jwt.sign(
-      { id: cliente._id, type: 'client' },
+      { id: cliente._id, role: 'client', type: 'client' },
       process.env.JWT_SECRET,
       { expiresIn: "30d" }
     );

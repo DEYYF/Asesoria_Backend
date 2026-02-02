@@ -50,6 +50,35 @@ router.get('/me/settings', authMiddleware, async (req, res) => {
   }
 });
 
+// Update current user profile (billing/fiscal data)
+router.put('/me/profile', authMiddleware, async (req, res) => {
+  try {
+    const Usuario = require('../models/Usuario');
+    const { nombre, nif, direccion, codigoPostal, ciudad, provincia, telefono } = req.body;
+    
+    // Allow updating only specific fields
+    const updateData = {};
+    if (nombre !== undefined) updateData.nombre = nombre;
+    if (nif !== undefined) updateData.nif = nif;
+    if (direccion !== undefined) updateData.direccion = direccion;
+    if (codigoPostal !== undefined) updateData.codigoPostal = codigoPostal;
+    if (ciudad !== undefined) updateData.ciudad = ciudad;
+    if (provincia !== undefined) updateData.provincia = provincia;
+    if (telefono !== undefined) updateData.telefono = telefono;
+
+    const user = await Usuario.findByIdAndUpdate(
+      req.user.id,
+      { $set: updateData },
+      { new: true, runValidators: true }
+    ).select('-password');
+
+    if (!user) return res.status(404).json({ error: 'Usuario no encontrado' });
+    res.json(user);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Update current user settings
 router.put('/me/settings', authMiddleware, async (req, res) => {
   try {
