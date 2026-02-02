@@ -29,7 +29,7 @@ function dateISOInTZ(daysOffset = 0, tz = TZ) {
 
 const getClienteEmail = (cli) => cli?.email || cli?.correo || cli?.destinatario || null;
 
-async function sendEmail({ to, subject, text, html }) {
+async function sendEmail({ to, subject, text, html, attachments }) {
   const from = process.env.SMTP_FROM || process.env.SMTP_USER;
   if (!from) throw new Error("Falta remitente (SMTP_FROM o SMTP_USER)");
   return transporter.sendMail({
@@ -37,6 +37,7 @@ async function sendEmail({ to, subject, text, html }) {
     to,
     subject,
     ...(html ? { html } : { text: text || "" }),
+    ...(attachments ? { attachments } : {}),
   });
 }
 

@@ -181,12 +181,14 @@ exports.actualizarPresupuesto = async (req, res) => {
     }
     
     // Si actualizamos estado (con o sin descuento), sincronizar cliente
-    if (estado) {
+    if (estado || req.body.clienteId) {
+       const updateData = { ...req.body };
+       
        const presupuesto = await Presupuesto.findByIdAndUpdate(
         req.params.id,
-        { estado },
+        updateData,
         { new: true }
-      ).populate('tarifaId');
+      ).populate('tarifaId').populate('extras.extraId');
 
       // ─────────────────────────────────────────────────────────────────────────────
       // Sincronización con Cliente: Si se acepta/paga, actualizar datos del cliente
@@ -266,6 +268,62 @@ exports.actualizarPresupuesto = async (req, res) => {
               // Generate invoice number
               const numeroFactura = await Factura.generarNumeroFactura();
               
+              // Build invoice items from budget (Tariff + Extras)
+              let subtotal = 0;
+              let totalIVA = 0;
+              const invoiceItems = [];
+              
+              // 1. Tariff Item
+              if (presupuesto.tarifaId) {
+                const precio = presupuesto.tarifaId.precio;
+                const iva = 21;
+                const totalItem = precio * (1 + iva / 100);
+                
+                invoiceItems.push({
+                  descripcion: `Servicio: ${presupuesto.tarifaId.nombre}`,
+                  cantidad: 1,
+                  precioUnitario: precio,
+                  iva: iva,
+                  descuento: 0,
+                  total: totalItem
+                });
+                
+                subtotal += precio;
+                totalIVA += (precio * iva / 100);
+              }
+              
+              // 2. Extras Items
+              if (presupuesto.extras && presupuesto.extras.length > 0) {
+                for (const extraItem of presupuesto.extras) {
+                  const extraName = extraItem.extraId ? extraItem.extraId.nombre : 'Servicio Extra';
+                  const precio = extraItem.precioTotal;
+                  const iva = 21;
+                  const totalItem = precio * (1 + iva / 100);
+
+                  invoiceItems.push({
+                    descripcion: `Extra: ${extraName}`,
+                    cantidad: 1,
+                    precioUnitario: precio,
+                    iva: iva,
+                    descuento: 0,
+                    total: totalItem
+                  });
+
+                  subtotal += precio;
+                  totalIVA += (precio * iva / 100);
+                }
+              }
+
+              // Apply global discount if exists
+              const descuentoGlobal = presupuesto.descuento || 0;
+              const descuentoImporte = subtotal * (descuentoGlobal / 100);
+              const totalFactura = subtotal + totalIVA - descuentoImporte;
+
+              // Validate REQUIRED fields for Factura model
+              if (!presupuesto.clienteId) {
+                throw new Error("No se puede generar factura: El presupuesto no tiene un cliente vinculado.");
+              }
+
               // Create invoice from budget data
               const factura = await Factura.create({
                 numeroFactura,
@@ -274,15 +332,12 @@ exports.actualizarPresupuesto = async (req, res) => {
                 clienteId: presupuesto.clienteId,
                 fecha: new Date(),
                 vencimiento: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
-                concepto: `Presupuesto Aceptado`,
-                items: [{
-                  descripcion: presupuesto.tarifaId ? presupuesto.tarifaId.nombre : 'Servicio',
-                  cantidad: 1,
-                  precioUnitario: presupuesto.total,
-                  iva: 21,
-                  descuento: 0,
-                  total: presupuesto.total * 1.21
-                }],
+                concepto: `Presupuesto Aceptado: ${presupuesto.tarifaId?.nombre || 'General'}`,
+                items: invoiceItems,
+                subtotal: subtotal,
+                totalIVA: totalIVA,
+                descuentoGlobal: descuentoGlobal,
+                total: totalFactura,
                 metodoPago: 'transferencia',
                 presupuestoId: presupuesto._id,
                 datosEmisor: {

@@ -11,11 +11,12 @@ module.exports = (req, res, next) => {
     
     // Normalize user object to ensure compatibility with both req.user._id and req.user.id
     const userId = payload.id || payload._id;
+    const role = payload.role || (payload.type === 'client' ? 'client' : 'advisor');
     req.user = { 
       ...payload, 
       _id: userId,
       id: userId,
-      role: payload.role || 'advisor' 
+      role: role
     };
     next();
   } catch (e) {

@@ -27,18 +27,22 @@ const AutomationSchema = new mongoose.Schema({
       'PROGRESS_RECORDED',
       'WORKOUT_COMPLETED',
       'PROGRESS_STALLED',
-      'PROGRESS_STAGNATED_3_WEEKS'
+      'PROGRESS_STAGNATED_3_WEEKS',
+      'INACTIVE_3_DAYS',
+      'INACTIVE_5_DAYS',
+      'WEIGHT_GOAL_REACHED',
+      'STREAK_7_DAYS'
     ]
   },
 
   // SCHEDULE: For type: SCHEDULED
   scheduledDate: { type: Date }, // Specific date/time (one-time)
   daysOfWeek: [{ type: Number }], // 0-6 (Weekly recurring)
-  hour: { type: Number }, // 0-23
-  minute: { type: Number }, // 0-59
-  lastExecutedAt: { type: Date }, // To prevent double execution in same window
-  
-  // TARGETING: Who receives this
+    hour: { type: Number }, // 0-23
+    minute: { type: Number }, // 0-59
+    lastExecutedAt: { type: Date }, // To prevent double execution in same window
+    
+    // TARGETING: Who receives this
   targetClientIds: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Cliente' }],
   allClients: { type: Boolean, default: false },
   
@@ -65,6 +69,11 @@ const AutomationSchema = new mongoose.Schema({
     },
     templateId: { type: mongoose.Schema.Types.ObjectId, ref: 'Template' },
     contentOverride: { type: String }, // If not using a template
+    buttons: [{
+      text: String,
+      action: String,
+      payload: mongoose.Schema.Types.Mixed
+    }],
     delay: { type: Number, default: 0 }, // In minutes
     // Additional fields for specific action types
     taskTitle: { type: String }, // For CREATE_TASK

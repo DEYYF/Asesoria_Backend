@@ -137,6 +137,19 @@ exports.getFacturaById = async (req, res) => {
       return res.status(403).json({ error: 'No autorizado' });
     }
 
+    // Enriquecer datos del emisor si están como PENDIENTE y tenemos los datos del asesor
+    if (factura.asesorId) {
+      const emisor = factura.datosEmisor;
+      const asesor = factura.asesorId;
+      
+      if (emisor.nif === 'PENDIENTE' && asesor.nif) emisor.nif = asesor.nif;
+      if (emisor.direccion === 'PENDIENTE' && asesor.direccion) emisor.direccion = asesor.direccion;
+      if (emisor.codigoPostal === 'PENDIENTE' && asesor.codigoPostal) emisor.codigoPostal = asesor.codigoPostal;
+      if (emisor.ciudad === 'PENDIENTE' && asesor.ciudad) emisor.ciudad = asesor.ciudad;
+      if (!emisor.provincia && asesor.provincia) emisor.provincia = asesor.provincia;
+      if (!emisor.telefono && asesor.telefono) emisor.telefono = asesor.telefono;
+    }
+
     res.json(factura);
   } catch (error) {
     console.error('Error getting factura:', error);
@@ -171,19 +184,51 @@ exports.updateFacturaEstado = async (req, res) => {
 
     await factura.save();
 
-    // AUTO-UPDATE BUDGET STATUS TO "PAGADO" IF INVOICE IS PAID
+    // AUTO-UPDATE BUDGET STATUS AND CREATE FINANCIAL MOVEMENT IF INVOICE IS PAID
     if (estado === 'pagada' && factura.presupuestoId) {
       const Presupuesto = require('../models/Presuspuesto');
+      const Movimiento = require('../models/Movimiento');
+      const { triggerAutomations } = require('../utils/automationManager');
+      
       try {
         const presupuesto = await Presupuesto.findById(factura.presupuestoId);
         if (presupuesto && presupuesto.estado !== 'pagado') {
+          // 1. Update budget status
           presupuesto.estado = 'pagado';
           await presupuesto.save();
-          console.log(`✓ Presupuesto ${presupuesto._id} actualizado a "pagado" por factura ${factura.numeroFactura}`);
+          
+          // 2. Create financial movement (if not already exists)
+          const exists = await Movimiento.findOne({ 
+            presupuestoId: presupuesto._id, 
+            tipoMovimiento: 'INGRESO' 
+          });
+          
+          if (!exists) {
+            await Movimiento.create({
+              asesorId: presupuesto.usuarioId,
+              descripcion: `Pago Factura ${factura.numeroFactura} - ${presupuesto.nombreCliente || "Cliente"}`,
+              monto: presupuesto.total,
+              tipoMovimiento: "INGRESO",
+              categoria: "Suscripción",
+              clienteId: presupuesto.clienteId,
+              presupuestoId: presupuesto._id,
+              Tipo: "FINANZAS"
+            });
+            console.log(`✓ Movimiento financiero creado para factura ${factura.numeroFactura}`);
+          }
+
+          // 3. Trigger automations for budget paid
+          await triggerAutomations('BUDGET_PAID', {
+            advisorId: presupuesto.usuarioId,
+            clientId: presupuesto.clienteId,
+            budgetId: presupuesto._id,
+            email: presupuesto.emailCliente
+          });
+
+          console.log(`✓ Presupuesto ${presupuesto._id} sincronizado como "pagado"`);
         }
-      } catch (budgetError) {
-        console.error('Error updating budget status:', budgetError);
-        // Don't fail invoice update if budget update fails
+      } catch (syncError) {
+        console.error('Error syncing invoice payment with budget/treasury:', syncError);
       }
     }
 
@@ -211,6 +256,16 @@ exports.generateFacturaPDF = async (req, res) => {
     if (factura.asesorId._id.toString() !== userId) {
       return res.status(403).json({ error: 'No autorizado' });
     }
+
+    // Enriquecer datos del emisor si están como PENDIENTE
+    const emisor = factura.datosEmisor;
+    const asesor = factura.asesorId;
+    if (emisor.nif === 'PENDIENTE' && asesor.nif) emisor.nif = asesor.nif;
+    if (emisor.direccion === 'PENDIENTE' && asesor.direccion) emisor.direccion = asesor.direccion;
+    if (emisor.codigoPostal === 'PENDIENTE' && asesor.codigoPostal) emisor.codigoPostal = asesor.codigoPostal;
+    if (emisor.ciudad === 'PENDIENTE' && asesor.ciudad) emisor.ciudad = asesor.ciudad;
+    if (!emisor.provincia && asesor.provincia) emisor.provincia = asesor.provincia;
+    if (!emisor.telefono && asesor.telefono) emisor.telefono = asesor.telefono;
 
     const pdfBuffer = await generateInvoicePDF(factura);
 
@@ -241,6 +296,16 @@ exports.sendFacturaEmail = async (req, res) => {
       return res.status(403).json({ error: 'No autorizado' });
     }
 
+    // Enriquecer datos del emisor si están como PENDIENTE
+    const emisor = factura.datosEmisor;
+    const asesor = factura.asesorId;
+    if (emisor.nif === 'PENDIENTE' && asesor.nif) emisor.nif = asesor.nif;
+    if (emisor.direccion === 'PENDIENTE' && asesor.direccion) emisor.direccion = asesor.direccion;
+    if (emisor.codigoPostal === 'PENDIENTE' && asesor.codigoPostal) emisor.codigoPostal = asesor.codigoPostal;
+    if (emisor.ciudad === 'PENDIENTE' && asesor.ciudad) emisor.ciudad = asesor.ciudad;
+    if (!emisor.provincia && asesor.provincia) emisor.provincia = asesor.provincia;
+    if (!emisor.telefono && asesor.telefono) emisor.telefono = asesor.telefono;
+
     // Generar PDF
     const pdfBuffer = await generateInvoicePDF(factura);
 
@@ -267,6 +332,56 @@ exports.sendFacturaEmail = async (req, res) => {
     res.json({ success: true, message: 'Factura enviada por email' });
   } catch (error) {
     console.error('Error sending factura email:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
+// Actualizar factura completa
+exports.updateFactura = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user.id;
+    const updateData = req.body;
+
+    const factura = await Factura.findById(id);
+    if (!factura) {
+      return res.status(404).json({ error: 'Factura no encontrada' });
+    }
+
+    if (factura.asesorId.toString() !== userId) {
+      return res.status(403).json({ error: 'No autorizado' });
+    }
+
+    // No permitir editar si está pagada (medida de seguridad habitual en facturación)
+    if (factura.estado === 'pagada') {
+      return res.status(400).json({ error: 'No se puede editar una factura ya pagada' });
+    }
+
+    // Actualizar campos permitidos
+    const allowedUpdates = [
+      'concepto',
+      'items',
+      'vencimiento',
+      'metodoPago',
+      'notas',
+      'descuentoGlobal',
+      'datosReceptor'
+    ];
+
+    allowedUpdates.forEach(field => {
+      if (updateData[field] !== undefined) {
+        factura[field] = updateData[field];
+      }
+    });
+
+    factura.modificadoPor = userId;
+
+    // save() disparará el middleware pre('save') que recalcula los totales
+    await factura.save();
+
+    res.json(factura);
+  } catch (error) {
+    console.error('Error updating factura:', error);
     res.status(500).json({ error: error.message });
   }
 };

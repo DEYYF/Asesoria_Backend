@@ -5,6 +5,7 @@ const Message = require('../models/Message');
 const Conversation = require('../models/Conversation');
 const Dieta = require('../models/Dieta');
 const { sendEmail } = require('./notifier');
+const ScheduledTask = require('../models/ScheduledTask');
 
 /**
  * Trigger automations for a specific event
@@ -27,12 +28,31 @@ async function triggerAutomations(trigger, data) {
     const cliente = clientId ? await Cliente.findById(clientId) : null;
 
     for (const automation of automations) {
-      // TODO: Check conditions if any
+      // Check conditions if any
+      if (automation.conditions && Object.keys(automation.conditions).length > 0) {
+        if (!evaluateConditions(automation.conditions, cliente)) {
+          console.log(`[Automation] Conditions not met for ${cliente?.nombre}. Skipping ${automation.name}`);
+          continue;
+        }
+      }
       
       for (const action of automation.actions) {
         if (action.delay > 0) {
-          // TODO: Schedule delayed action
-          console.log(`[Automation] Scheduling delayed action (${action.delay}m) for ${trigger}`);
+          // Schedule delayed action using ScheduledTask model
+          const executeAt = new Date();
+          executeAt.setMinutes(executeAt.getMinutes() + action.delay);
+
+          await ScheduledTask.create({
+            advisorId,
+            clientId: cliente?._id,
+            automationId: automation._id,
+            action,
+            triggerData: data,
+            executeAt,
+            status: 'PENDING'
+          });
+
+          console.log(`[Automation] Persistent task scheduled for ${cliente?.nombre} at ${executeAt.toISOString()}`);
           continue;
         }
 
@@ -60,6 +80,27 @@ async function executeAction(action, { cliente, advisorId, data }) {
     content = content.replace(/{{cliente_email}}/g, cliente.email || "");
     content = content.replace(/{{cliente_telefono}}/g, cliente.telefono || "");
     content = content.replace(/{{tarifa}}/g, cliente.Tarifa || "");
+
+    // Advanced Metrics
+    if (cliente.historialProgreso && cliente.historialProgreso.length > 0) {
+      const sorted = [...cliente.historialProgreso].sort((a, b) => b.fecha - a.fecha);
+      const latest = sorted[0];
+      const first = sorted[sorted.length - 1];
+
+      content = content.replace(/{{peso_actual}}/g, `${latest.peso || "--"} kg`);
+      content = content.replace(/{{grasa_actual}}/g, `${latest.grasaCorporal || "--"}%`);
+      
+      const totalLost = (first.peso - latest.peso).toFixed(1);
+      content = content.replace(/{{peso_perdido_total}}/g, `${totalLost} kg`);
+    } else {
+      content = content.replace(/{{peso_actual}}/g, "-- kg");
+      content = content.replace(/{{grasa_actual}}/g, "--%");
+      content = content.replace(/{{peso_perdido_total}}/g, "0 kg");
+    }
+
+    // Goal
+    const currentDiet = await Dieta.findOne({ clienteId: cliente._id, isCurrent: true });
+    content = content.replace(/{{objetivo_actual}}/g, currentDiet?.objetivo || "Bienestar");
   }
   
   // System variables
@@ -77,39 +118,7 @@ async function executeAction(action, { cliente, advisorId, data }) {
   } else if (action.type === 'SEND_CHAT') {
     if (!cliente || !advisorId) return;
 
-    // Find or create conversation
-    let conv = await Conversation.findOne({
-      asesorId: advisorId,
-      clienteId: cliente._id
-    });
-
-    if (!conv) {
-      conv = await Conversation.create({
-        asesorId: advisorId,
-        clienteId: cliente._id,
-        lastMessage: content,
-        lastMessageAt: Date.now()
-      });
-    }
-
-    const newMessage = new Message({
-      conversationId: conv._id,
-      senderType: 'ASESOR',
-      senderId: advisorId,
-      text: content
-    });
-
-    await newMessage.save();
-    
-    conv.lastMessage = content;
-    conv.lastMessageAt = Date.now();
-    
-    // Update unread count for client
-    if (!conv.unreadCounts) conv.unreadCounts = new Map();
-    const currentCount = conv.unreadCounts.get(cliente._id.toString()) || 0;
-    conv.unreadCounts.set(cliente._id.toString(), currentCount + 1);
-    
-    await conv.save();
+    await sendToChat(advisorId, cliente._id, content, action.buttons);
     console.log(`[Automation] Chat message sent to ${cliente.nombre}`);
   } else if (action.type === 'CREATE_TASK') {
     // Implement Task Creation
@@ -305,7 +314,7 @@ async function handleSendShoppingList(action, cliente, advisorId) {
     }
 }
 
-async function sendToChat(advisorId, clientId, text) {
+async function sendToChat(advisorId, clientId, text, buttons = []) {
     let conv = await Conversation.findOne({ asesorId: advisorId, clienteId: clientId });
     if (!conv) {
         conv = await Conversation.create({ asesorId: advisorId, clienteId: clientId, lastMessage: text, lastMessageAt: Date.now() });
@@ -315,7 +324,8 @@ async function sendToChat(advisorId, clientId, text) {
         conversationId: conv._id,
         senderType: 'ASESOR',
         senderId: advisorId,
-        text: text
+        text: text,
+        buttons: buttons
     });
     await newMessage.save();
 
@@ -435,7 +445,7 @@ async function checkDailyTriggers(today) {
     const dailyAutomations = await Automation.find({
         active: true,
         type: 'EVENT',
-        trigger: { $in: ['PLAN_EXPIRED', 'BIRTHDAY', 'INACTIVE_7_DAYS', 'PLAN_EXPIRING_3_DAYS', 'PROGRESS_STALLED'] }
+        trigger: { $in: ['PLAN_EXPIRED', 'BIRTHDAY', 'INACTIVE_7_DAYS', 'PLAN_EXPIRING_3_DAYS', 'PROGRESS_STALLED', 'INACTIVE_3_DAYS', 'INACTIVE_5_DAYS', 'WEIGHT_GOAL_REACHED', 'STREAK_7_DAYS'] }
     }).populate('actions.templateId');
 
     if (dailyAutomations.length === 0) return;
@@ -489,12 +499,63 @@ async function checkDailyTriggers(today) {
                  }
              }
 
+              // Rule: INACTIVE_3_DAYS or INACTIVE_5_DAYS
+              if (auto.trigger === 'INACTIVE_3_DAYS' || auto.trigger === 'INACTIVE_5_DAYS') {
+                  const targetDays = auto.trigger === 'INACTIVE_3_DAYS' ? 3 : 5;
+                  const lastActive = client.ultimaActividad ? new Date(client.ultimaActividad) : new Date(client.updatedAt);
+                  const diffTime = Math.abs(today - lastActive);
+                  const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24)); 
+                  if (diffDays === targetDays) {
+                      shouldTrigger = true;
+                  }
+              }
+
+              // Rule: WEIGHT_GOAL_REACHED
+              if (auto.trigger === 'WEIGHT_GOAL_REACHED' && client.pesoObjetivo) {
+                  const latestRecord = client.historialProgreso?.[0];
+                  if (latestRecord && latestRecord.peso <= client.pesoObjetivo) {
+                      // Only trigger if achieved today (roughly) or not already triggered
+                      // For simplicity, we trigger if the date of record is today
+                      const recordDate = new Date(latestRecord.fecha);
+                      if (recordDate.toDateString() === today.toDateString()) {
+                          shouldTrigger = true;
+                      }
+                  }
+              }
+
+              // Rule: STREAK_7_DAYS
+              if (auto.trigger === 'STREAK_7_DAYS') {
+                  const EntrenamientoRegistro = require('../models/EntrenamientoRegistro');
+                  const sevenDaysAgo = new Date(today);
+                  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+                  
+                  const registros = await EntrenamientoRegistro.find({
+                      clienteId: client._id,
+                      fecha: { $gte: sevenDaysAgo }
+                  });
+
+                  // Check if there is at least one record for each of the last 7 days
+                  const distinctDays = new Set(registros.map(r => new Date(r.fecha).toDateString()));
+                  if (distinctDays.size >= 7) {
+                      shouldTrigger = true;
+                  }
+              }
+
              // Rule: PROGRESS_STALLED
              if (auto.trigger === 'PROGRESS_STALLED') {
                  const { analyzeStall } = require('./intelligenceManager');
                  const stall = await analyzeStall(client._id);
                  if (stall) {
                      shouldTrigger = true;
+                 }
+             }
+
+             if (shouldTrigger) {
+                 // Final check: Automation conditions (tags, goals, etc)
+                 if (auto.conditions && Object.keys(auto.conditions).length > 0) {
+                    if (!evaluateConditions(auto.conditions, client)) {
+                        shouldTrigger = false;
+                    }
                  }
              }
 
@@ -515,4 +576,84 @@ async function checkDailyTriggers(today) {
 
 }
 
-module.exports = { triggerAutomations, processScheduledAutomations };
+/**
+ * Logic to evaluate if a client meets automation conditions
+ */
+function evaluateConditions(conditions, cliente) {
+    if (!cliente || !conditions || !conditions.rules) return true;
+    
+    const operator = conditions.operator || 'AND';
+    const rules = conditions.rules;
+
+    const results = rules.map(rule => {
+        const { field, operator: op, value } = rule;
+        let clientValue;
+
+        if (field === 'tag') {
+            clientValue = cliente.etiquetas || [];
+            if (op === 'contains') return clientValue.includes(value);
+            if (op === 'not_contains') return !clientValue.includes(value);
+            return true;
+        }
+
+        if (field === 'objetivo') {
+            clientValue = cliente.historialProgreso?.[0]?.objetivo; // or from current diet
+            // For now, let's assume it's passed in metadata or we check current diet
+            return true; // Simplify for now
+        }
+
+        if (field === 'genero') {
+            clientValue = cliente.genero;
+            if (op === 'equals') return clientValue === value;
+            return true;
+        }
+
+        return true;
+    });
+
+    if (operator === 'AND') return results.every(r => r === true);
+    if (operator === 'OR') return results.some(r => r === true);
+    
+    return true;
+}
+
+async function processScheduledTasks() {
+    try {
+        const now = new Date();
+        const tasks = await ScheduledTask.find({
+            status: 'PENDING',
+            executeAt: { $lte: now }
+        });
+
+        if (tasks.length === 0) return;
+
+        console.log(`[Automation] Processing ${tasks.length} ready delayed tasks...`);
+
+        for (const task of tasks) {
+            try {
+                const cliente = task.clientId ? await Cliente.findById(task.clientId) : null;
+                await executeAction(task.action, { 
+                    cliente, 
+                    advisorId: task.advisorId, 
+                    data: task.triggerData || {} 
+                });
+
+                task.status = 'COMPLETED';
+                await task.save();
+            } catch (err) {
+                console.error(`[Automation] Error executing delayed task ${task._id}:`, err);
+                task.status = 'FAILED';
+                task.error = err.message;
+                await task.save();
+            }
+        }
+    } catch (e) {
+        console.error('[Automation] Error processing scheduled tasks:', e);
+    }
+}
+
+module.exports = { 
+    triggerAutomations, 
+    processScheduledAutomations,
+    processScheduledTasks 
+};
