@@ -110,7 +110,9 @@ router.post("/", auth, async (req, res) => {
       notes: `Fecha: ${date} ${hora || ""}${
         horaFin ? " - " + horaFin : ""
       }\nCliente ID: ${clienteId || "N/A"}`,
-      status: "pending",
+      status: "todo",
+      priority: "medium",
+      tags: [{ label: "Cita", color: "green" }],
       dueAt: date,
       origin: "cita",
       clientId: clienteId || undefined,
@@ -358,7 +360,7 @@ router.put("/:id/asistencia", auth, async (req, res) => {
     );
 
     // ✅ status tarea: done si asiste, pending si no
-    await setTareaStatusByCita(req, id, asistio ? "done" : "pending");
+    await setTareaStatusByCita(req, id, asistio ? "done" : "todo");
 
     // Automation Triggers
     if (asistio) {
