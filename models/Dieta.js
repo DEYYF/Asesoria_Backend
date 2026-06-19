@@ -75,6 +75,14 @@ const ComidaSchema = new Schema(
   { _id: false }
 );
 
+const DiaDietaSchema = new Schema(
+  {
+    nombre: { type: String, required: true }, // "Lunes", "Martes", etc.
+    comidas: { type: [ComidaSchema], default: [] },
+  },
+  { _id: true }
+);
+
 const DietaSchema = new Schema(
   {
     // Contexto
@@ -92,8 +100,14 @@ const DietaSchema = new Schema(
       g:   { type: Number, default: 70 },
     },
 
-    // Estructura de comidas
+    // Estilo de plan
+    tipoPlan: { type: String, enum: ["opciones", "calendario"], default: "opciones" },
+
+    // Estructura de comidas para Plan de Opciones
     comidas: { type: [ComidaSchema], default: [] },
+
+    // Estructura de comidas para Plan de Calendario
+    diasCalendario: { type: [DiaDietaSchema], default: [] },
 
     notas: { type: String, default: "" },
 
