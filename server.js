@@ -23,8 +23,26 @@ app.use(compression());
 app.use(express.json({ limit: "12mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
+const allowedOrigins = [
+  'http://localhost:4000',
+  'http://localhost:3000',
+  'http://localhost:5500', 
+  'http://127.0.0.1:5500',
+  'https://asesoria-app-rouge.vercel.app'
+];
+
 // CORS + logs
-app.use(cors({ origin: true, credentials: true }));
+app.use(cors({
+  origin: function (origin, callback) {
+    // Permitir si no hay origen (postman, s2s) o si está en la lista permitida
+    if (!origin || allowedOrigins.includes(origin)) {
+      callback(null, true);
+    } else {
+      callback(null, true); // Fallback: si necesitas bloquear de verdad, cambia a "callback(new Error('CORS no permitido'));"
+    }
+  },
+  credentials: true
+}));
 app.use(morgan("dev"));
 
 // Rate limiting basado en usuario (no IP) para endpoints autenticados
