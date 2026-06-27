@@ -51,10 +51,6 @@ router.patch('/:id', async (req, res) => {
     const asesorId = getAsesorId(req);
     if (asesorId) partial.updatedBy = asesorId;
 
-    if (partial.status) {
-      partial.statusChangedAt = new Date();
-    }
-
     const tarea = await Tarea.findByIdAndUpdate(req.params.id, partial, { new: true });
     if (!tarea) return res.status(404).json({ error: 'Tarea no encontrada' });
 

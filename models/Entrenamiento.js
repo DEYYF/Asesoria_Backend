@@ -48,7 +48,7 @@ const EntrenamientoSchema = new Schema(
     diaSemana: { type: String, enum: ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"], default: null },
 
 
-    titulo: { type: String, required: true, trim: true },
+    diasProgramados: { type: [String], enum: ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"], default: [] },
     objetivo: { type: String, trim: true },
     fechaInicio: { type: Date, default: Date.now },
 

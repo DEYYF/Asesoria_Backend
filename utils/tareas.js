@@ -35,16 +35,11 @@ async function createTarea(req, payload = {}) {
     createdBy,
     title: payload.title || "",
     notes: payload.notes || "",
-    status: payload.status || "todo", // Normalized to "todo"
-    priority: payload.priority || "medium",
+    status: payload.status || "pending",
     dueAt: payload.dueAt || undefined,
     origin: payload.origin || "manual",
     clientId: payload.clientId || undefined,
     clientName: payload.clientName || undefined,
-    subtasks: payload.subtasks || [],
-    tags: payload.tags || [],
-    attachments: payload.attachments || [],
-    statusChangedAt: new Date(),
     metadata: { ...(payload.metadata || {}) },
   });
   return tarea;
@@ -52,32 +47,18 @@ async function createTarea(req, payload = {}) {
 
 /** Actualiza la tarea ligada a una cita (por id de cita) */
 async function updateTareaCita(req, citaId, data = {}) {
-  const filter = buildFilter(req, citaId);
-  const update = { ...data };
   
-  // If status is changed, update statusChangedAt
-  if (update.status) {
-    update.statusChangedAt = new Date();
-  }
-
-  return Tarea.findOneAndUpdate(filter, { $set: update }, { new: true });
 }
 
 /** Borra la tarea ligada a una cita */
 async function deleteTareaCita(citaId) {
-  // Use filter to ensure we delete the correct linked task
-  const filter = { origin: "cita", "metadata.citaId": String(citaId) };
-  return Tarea.deleteOne(filter);
+  return Tarea.deleteOne(citaId);
 }
 
 /** Cambia el status de la tarea ligada a una cita */
 async function setTareaStatusByCita(req, citaId, status) {
   const filter = buildFilter(req, citaId);
-  return Tarea.findOneAndUpdate(
-    filter, 
-    { $set: { status, statusChangedAt: new Date() } }, 
-    { new: true }
-  );
+  return Tarea.findOneAndUpdate(filter, { $set: { status } }, { new: true });
 }
 
 module.exports = { createTarea, updateTareaCita, deleteTareaCita, setTareaStatusByCita };

@@ -67,13 +67,9 @@ const clienteSchema = new mongoose.Schema({
     points: { type: Number, default: 0 },
     level: { type: Number, default: 1 },
     currentStreak: { type: Number, default: 0 },
-    longestStreak: { type: Number, default: 0 },
     lastActivityDate: { type: Date },
-    lastStreakUpdate: { type: Date },
-    totalHabitsCompleted: { type: Number, default: 0 },
-    badges: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Badge' }],
     history: [{
-      action: String, // WORKOUT, PROGRESS, HABIT_COMPLETE, etc.
+      action: String, // WORKOUT, PROGRESS, etc.
       points: Number,
       date: { type: Date, default: Date.now }
     }]
