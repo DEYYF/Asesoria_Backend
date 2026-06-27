@@ -319,15 +319,15 @@ async function analyzeTaskCompletion(clienteId) {
     const tareas = await Tarea.find({
       clienteId,
       createdAt: { $gte: thirtyDaysAgo },
-    }).select('status dueAt createdAt').lean();
+    }).select('completada fechaLimite createdAt').lean();
 
     if (tareas.length === 0) return null;
 
     const overdueTasks = tareas.filter(t => 
-      t.status !== 'done' && t.dueAt && new Date(t.dueAt) < now
+      !t.completada && t.fechaLimite && new Date(t.fechaLimite) < now
     );
 
-    const completedTasks = tareas.filter(t => t.status === 'done');
+    const completedTasks = tareas.filter(t => t.completada);
     const completionRate = (completedTasks.length / tareas.length) * 100;
 
     if (overdueTasks.length > 3 || completionRate < 60) {

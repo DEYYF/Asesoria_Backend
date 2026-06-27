@@ -112,10 +112,7 @@ app.use('/api/facturas', require('./routes/facturaRoutes'));
 app.use('/api/google-calendar', require('./routes/googleCalendarRoutes'));
 app.use('/api/despensa', require('./routes/despensa'));
 app.use('/api/smart-insights', require('./routes/smartInsightsRoutes'));
-app.use('/api/transcribe', require('./routes/transcriptionRoutes'));
 app.use('/api/gamification', require('./routes/gamificationRoutes'));
-app.use('/api/habitos', require('./routes/habitoRoutes'));
-app.use('/api/presets/habitos', require('./routes/habitoPresetRoutes'));
 
 
 
@@ -236,16 +233,10 @@ io.on('connection', (socket) => {
 
       await conversation.save();
 
-      // Emit to ALL unique participants
-      const uniqueParticipants = new Set([
-        conversation.asesorId?.toString(),
-        conversation.clienteId?.toString(),
-        conversation.recipientAsesorId?.toString()
-      ].filter(id => id));
-
-      uniqueParticipants.forEach(participantId => {
-        io.to(participantId).emit('receiveMessage', newMessage);
-      });
+      // Emit to ALL participants
+      if (conversation.asesorId) io.to(conversation.asesorId.toString()).emit('receiveMessage', newMessage);
+      if (conversation.clienteId) io.to(conversation.clienteId.toString()).emit('receiveMessage', newMessage);
+      if (conversation.recipientAsesorId) io.to(conversation.recipientAsesorId.toString()).emit('receiveMessage', newMessage);
       
     } catch (err) {
       console.error('Socket error:', err);
