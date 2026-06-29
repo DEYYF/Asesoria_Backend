@@ -13,6 +13,38 @@ const Tarifa = require("../models/Tarifa");
 const authMiddleware = require("../middlewares/authMiddleware");
 const bcrypt = require("bcrypt");
 const intelligenceService = require("../services/intelligenceService");
+const Habito = require("../models/Habito");
+const { createTarea } = require('../utils/tareas');
+
+// ────────────────────────────── Analytics: Weight vs Kcal Data
+router.get("/:id/analytics/weight-kcal", authMiddleware, async (req, res) => {
+  try {
+    const { id } = req.params;
+    const cliente = await Cliente.findById(id).select("historialProgreso").lean();
+    if (!cliente) return res.status(404).json({ error: "Cliente no encontrado" });
+
+    const dietas = await Dieta.find({ clienteId: id }).select("createdAt macros").sort({ createdAt: 1 }).lean();
+
+    // Combine data points
+    // For weighting: { date, weight }
+    // For kcal: { date, kcal }
+    
+    const weightData = (cliente.historialProgreso || [])
+      .filter(p => p.peso)
+      .map(p => ({ date: p.fecha, weight: p.peso }));
+
+    const kcalData = dietas
+      .filter(d => d.macros && d.macros.kcal)
+      .map(d => ({ date: d.createdAt, kcal: d.macros.kcal }));
+
+    res.json({
+      weight: weightData,
+      kcal: kcalData
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 
 // ────────────────────────────── Intelligent Insights (AI Analysis)
@@ -86,6 +118,17 @@ router.post("/", async (req, res) => {
     await triggerAutomations('CLIENT_REGISTERED', {
       advisorId: req.body.asesorId,
       clientId: cliente._id
+    });
+
+    // ✅ Crear Tarea Automática: Onboarding
+    await createTarea(req, {
+      assigneeId: req.body.asesorId,
+      clientId: cliente._id,
+      title: `Onboarding: ${cliente.nombre}`,
+      notes: `Nuevo cliente registrado. Realizar entrevista inicial y recogida de datos detallada.`,
+      priority: 'high',
+      tags: [{ label: 'Nuevo', color: 'blue' }],
+      origin: 'manual'
     });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -559,6 +602,37 @@ router.put("/:id/historial", async (req, res) => {
         clientId: cliente._id,
         data: { progressEntry: req.body, weight: req.body.peso }
       });
+    }
+
+    // ✅ Crear Tarea Automática: Revisión de Progreso
+    await createTarea(req, {
+      assigneeId: cliente.asesorId,
+      clientId: cliente._id,
+      title: `Revisar progreso: ${cliente.nombre}`,
+      notes: `El cliente ha subido nuevos datos de seguimiento (Peso: ${req.body.weight || req.body.peso || 'N/A'}kg, Grasa: ${req.body.grasaCorporal || 'N/A'}%). Revisar y dar feedback.`,
+      priority: 'medium',
+      tags: [{ label: 'Seguimiento', color: 'orange' }],
+      origin: 'manual'
+    });
+
+    // ✅ IA: Detección de Estancamiento
+    try {
+      const { analyzeStall } = require('../utils/intelligenceManager');
+      const stall = await analyzeStall(cliente._id);
+      if (stall) {
+        await createTarea(req, {
+          assigneeId: cliente.asesorId,
+          clientId: cliente._id,
+          title: `Ajustar plan por estancamiento: ${cliente.nombre}`,
+          notes: `IA Detectó Estancamiento: ${stall.message} Es recomendable ajustar macros o actividad.`,
+          priority: 'high',
+          tags: [{ label: 'IA Alerta', color: 'purple' }],
+          origin: 'manual'
+        });
+        console.log(`[AI] Estancamiento detectado para ${cliente.nombre}. Tarea creada.`);
+      }
+    } catch (aiErr) {
+      console.error("[AI] Error detectando estancamiento:", aiErr);
     }
 
     // Award Gamification Points

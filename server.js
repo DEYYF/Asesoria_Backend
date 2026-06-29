@@ -23,26 +23,8 @@ app.use(compression());
 app.use(express.json({ limit: "12mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
-const allowedOrigins = [
-  'http://localhost:4000',
-  'http://localhost:3000',
-  'http://localhost:5500', 
-  'http://127.0.0.1:5500',
-  'https://asesoria-app-rouge.vercel.app'
-];
-
 // CORS + logs
-app.use(cors({
-  origin: function (origin, callback) {
-    // Permitir si no hay origen (postman, s2s) o si está en la lista permitida
-    if (!origin || allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      callback(null, true); // Fallback: si necesitas bloquear de verdad, cambia a "callback(new Error('CORS no permitido'));"
-    }
-  },
-  credentials: true
-}));
+app.use(cors({ origin: true, credentials: true }));
 app.use(morgan("dev"));
 
 // Rate limiting basado en usuario (no IP) para endpoints autenticados
@@ -112,7 +94,10 @@ app.use('/api/facturas', require('./routes/facturaRoutes'));
 app.use('/api/google-calendar', require('./routes/googleCalendarRoutes'));
 app.use('/api/despensa', require('./routes/despensa'));
 app.use('/api/smart-insights', require('./routes/smartInsightsRoutes'));
+app.use('/api/transcribe', require('./routes/transcriptionRoutes'));
 app.use('/api/gamification', require('./routes/gamificationRoutes'));
+app.use('/api/habitos', require('./routes/habitoRoutes'));
+app.use('/api/presets/habitos', require('./routes/habitoPresetRoutes'));
 
 
 
@@ -233,10 +218,16 @@ io.on('connection', (socket) => {
 
       await conversation.save();
 
-      // Emit to ALL participants
-      if (conversation.asesorId) io.to(conversation.asesorId.toString()).emit('receiveMessage', newMessage);
-      if (conversation.clienteId) io.to(conversation.clienteId.toString()).emit('receiveMessage', newMessage);
-      if (conversation.recipientAsesorId) io.to(conversation.recipientAsesorId.toString()).emit('receiveMessage', newMessage);
+      // Emit to ALL unique participants
+      const uniqueParticipants = new Set([
+        conversation.asesorId?.toString(),
+        conversation.clienteId?.toString(),
+        conversation.recipientAsesorId?.toString()
+      ].filter(id => id));
+
+      uniqueParticipants.forEach(participantId => {
+        io.to(participantId).emit('receiveMessage', newMessage);
+      });
       
     } catch (err) {
       console.error('Socket error:', err);

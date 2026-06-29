@@ -23,16 +23,6 @@ const {
   setTareaStatusByCita,
 } = require("../utils/tareas");
 
-// Helper to get Monday of a week (normalized to 00:00:00.000 local time)
-function getMonday(d) {
-  const date = new Date(d);
-  const day = date.getDay();
-  const diff = date.getDate() - day + (day === 0 ? -6 : 1); // adjust when day is sunday
-  const monday = new Date(date.setDate(diff));
-  monday.setHours(0, 0, 0, 0);
-  return monday;
-}
-
 // Listado por mes YYYY-MM
 // Listado por mes YYYY-MM
 router.get("/", auth, async (req, res) => {
@@ -80,109 +70,6 @@ router.get("/", auth, async (req, res) => {
       clienteId: i.clienteId ? i.clienteId._id : null
     }));
 
-    // Dynamic workouts injection
-    const targetClienteId = req.query.clienteId || (isClient ? req.user._id : null);
-    if (targetClienteId && Types.ObjectId.isValid(String(targetClienteId))) {
-      const Entrenamiento = require("../models/Entrenamiento");
-      const activeWorkouts = await Entrenamiento.find({ 
-        clienteId: new Types.ObjectId(String(targetClienteId)),
-        activo: true 
-      })
-      .populate({
-        path: "semanas.dias.items.ejercicio",
-        select: "nombre grupo equipo nivel urlVideo instrucciones",
-      })
-      .lean();
-
-      // Find range start and end
-      let rangeStart, rangeEnd;
-      if (month && /^\d{4}-\d{2}$/.test(month)) {
-        rangeStart = new Date(`${month}-01T00:00:00`);
-        rangeEnd = new Date(rangeStart.getFullYear(), rangeStart.getMonth() + 1, 0, 23, 59, 59);
-      } else if (start || end) {
-        rangeStart = start ? new Date(start + "T00:00:00") : new Date();
-        rangeEnd = end ? new Date(end + "T23:59:59") : new Date();
-      } else {
-        // default 1 month
-        const now = new Date();
-        rangeStart = new Date(now.getFullYear(), now.getMonth(), 1);
-        rangeEnd = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
-      }
-
-      for (const workout of activeWorkouts) {
-        const routineStart = workout.fechaInicio ? new Date(workout.fechaInicio) : new Date(workout.createdAt);
-        routineStart.setHours(0,0,0,0);
-
-        // Monday of the week of routine start
-        const routineStartMonday = getMonday(routineStart);
-
-        // Loop through each day in the range
-        let currentDay = new Date(rangeStart);
-        while (currentDay <= rangeEnd) {
-          const currentMonday = getMonday(currentDay);
-          const msPerWeek = 7 * 24 * 60 * 60 * 1000;
-          const weeksElapsed = Math.round((currentMonday - routineStartMonday) / msPerWeek);
-
-          if (weeksElapsed >= 0) {
-            const weekNum = weeksElapsed + 1;
-            // Find week or cycle
-            let targetWeek = workout.semanas.find(s => s.numero === weekNum);
-            if (!targetWeek && workout.semanas.length > 0) {
-              const cycleIndex = weeksElapsed % workout.semanas.length;
-              targetWeek = workout.semanas[cycleIndex];
-            }
-
-            if (targetWeek) {
-              const weekdays = ["Domingo", "Lunes", "Martes", "Miércoles", "Jueves", "Viernes", "Sábado"];
-              const currentDayName = weekdays[currentDay.getDay()];
-              
-              // Find matching training day(s) for this weekday
-              (targetWeek.dias || []).forEach((dia, diaIndex) => {
-                if (dia.diaSemana && dia.diaSemana.toLowerCase() === currentDayName.toLowerCase()) {
-                  // Format the exercises
-                  const exercisesList = (dia.items || []).map(it => ({
-                    nombre: it.ejercicio?.nombre || "Ejercicio",
-                    series: it.esquema?.series || 3,
-                    repsMin: it.esquema?.repsMin || 8,
-                    repsMax: it.esquema?.repsMax || 12,
-                    rir: it.esquema?.rir ?? 1,
-                    descanso: it.esquema?.descanso ?? 90,
-                    notas: it.esquema?.notas || "",
-                    urlVideo: it.ejercicio?.urlVideo || "",
-                    instrucciones: it.ejercicio?.instrucciones || ""
-                  }));
-
-                  // Map date to string 'YYYY-MM-DD'
-                  const yyyy = currentDay.getFullYear();
-                  const mm = String(currentDay.getMonth() + 1).padStart(2, "0");
-                  const dd = String(currentDay.getDate()).padStart(2, "0");
-                  const dateStr = `${yyyy}-${mm}-${dd}`;
-
-                  mappedItems.push({
-                    _id: `workout-${workout._id}-${weekNum}-${diaIndex}-${dateStr}`,
-                    title: `🏋️‍♂️ Entrenar: ${dia.nombre}`,
-                    date: dateStr,
-                    hora: "08:00",
-                    horaFin: "09:30",
-                    clienteId: targetClienteId,
-                    clienteNombre: workout.clienteId?.nombre || "",
-                    color: "#a78bfa",
-                    isWorkout: true,
-                    workoutId: workout._id,
-                    semanaIdx: workout.semanas.indexOf(targetWeek),
-                    diaIdx: diaIndex,
-                    exercises: exercisesList,
-                    notas: `Rutina: ${workout.titulo}\nObjetivo: ${workout.objetivo || ""}`
-                  });
-                }
-              });
-            }
-          }
-          currentDay.setDate(currentDay.getDate() + 1);
-        }
-      }
-    }
-
     res.json(mappedItems);
   } catch (e) {
     console.error("GET /citas", e);
@@ -223,7 +110,9 @@ router.post("/", auth, async (req, res) => {
       notes: `Fecha: ${date} ${hora || ""}${
         horaFin ? " - " + horaFin : ""
       }\nCliente ID: ${clienteId || "N/A"}`,
-      status: "pending",
+      status: "todo",
+      priority: "medium",
+      tags: [{ label: "Cita", color: "green" }],
       dueAt: date,
       origin: "cita",
       clientId: clienteId || undefined,
@@ -471,7 +360,7 @@ router.put("/:id/asistencia", auth, async (req, res) => {
     );
 
     // ✅ status tarea: done si asiste, pending si no
-    await setTareaStatusByCita(req, id, asistio ? "done" : "pending");
+    await setTareaStatusByCita(req, id, asistio ? "done" : "todo");
 
     // Automation Triggers
     if (asistio) {

@@ -40,11 +40,6 @@ const comidaZ = z.object({
   notas: z.string().optional(),
 });
 
-const diaDietaZ = z.object({
-  nombre: z.string().min(1),
-  comidas: z.array(comidaZ).default([]),
-});
-
 const baseDietaZ = z.object({
   clienteId: z.string().min(1),
   asesorId: z.string().optional(),
@@ -54,8 +49,6 @@ const baseDietaZ = z.object({
   macros: macrosZ.partial().default({}),
   comidas: z.array(comidaZ).default([]),
   notas: z.string().optional(),
-  tipoPlan: z.enum(["opciones", "calendario"]).default("opciones"),
-  diasCalendario: z.array(diaDietaZ).default([]),
 });
 
 const createDietaSchema = baseDietaZ;

@@ -3,6 +3,9 @@ const router = express.Router();
 const facturaController = require('../controllers/facturaController');
 const authMiddleware = require('../middlewares/authMiddleware');
 
+// Ruta pública para descargar PDF de factura desde el email sin requerir autenticación
+router.get('/public/:id/pdf', facturaController.generateFacturaPDFPublic);
+
 // Todas las rutas requieren autenticación
 router.use(authMiddleware);
 

@@ -278,6 +278,40 @@ exports.generateFacturaPDF = async (req, res) => {
   }
 };
 
+// Generar PDF de factura público (sin login, para descarga directa desde el correo)
+exports.generateFacturaPDFPublic = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const factura = await Factura.findById(id)
+      .populate('clienteId')
+      .populate('asesorId');
+
+    if (!factura) {
+      return res.status(404).json({ error: 'Factura no encontrada' });
+    }
+
+    // Enriquecer datos del emisor si están como PENDIENTE
+    const emisor = factura.datosEmisor;
+    const asesor = factura.asesorId;
+    if (emisor.nif === 'PENDIENTE' && asesor.nif) emisor.nif = asesor.nif;
+    if (emisor.direccion === 'PENDIENTE' && asesor.direccion) emisor.direccion = asesor.direccion;
+    if (emisor.codigoPostal === 'PENDIENTE' && asesor.codigoPostal) emisor.codigoPostal = asesor.codigoPostal;
+    if (emisor.ciudad === 'PENDIENTE' && asesor.ciudad) emisor.ciudad = asesor.ciudad;
+    if (!emisor.provincia && asesor.provincia) emisor.provincia = asesor.provincia;
+    if (!emisor.telefono && asesor.telefono) emisor.telefono = asesor.telefono;
+
+    const pdfBuffer = await generateInvoicePDF(factura);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename=Factura-${factura.numeroFactura}.pdf`);
+    res.send(pdfBuffer);
+  } catch (error) {
+    console.error('Error generating PDF public:', error);
+    res.status(500).json({ error: error.message });
+  }
+};
+
 // Enviar factura por email
 exports.sendFacturaEmail = async (req, res) => {
   try {
@@ -306,26 +340,23 @@ exports.sendFacturaEmail = async (req, res) => {
     if (!emisor.provincia && asesor.provincia) emisor.provincia = asesor.provincia;
     if (!emisor.telefono && asesor.telefono) emisor.telefono = asesor.telefono;
 
-    // Generar PDF
     const pdfBuffer = await generateInvoicePDF(factura);
+    const base64Data = pdfBuffer.toString("base64");
 
-    // Enviar email
+    const baseUrl = process.env.BASE_URL || `${req.protocol}://${req.get('host')}`;
+    const pdfUrl = `${baseUrl}/api/facturas/public/${factura._id}/pdf`;
+
+    // Enviar email via Make.com webhook
     await sendEmail({
       to: factura.clienteId.email,
       subject: `Factura ${factura.numeroFactura} - ${factura.concepto}`,
-      html: `
-        <h2>Nueva Factura</h2>
-        <p>Hola ${factura.datosReceptor.nombre},</p>
-        <p>Adjunto encontrarás la factura <strong>${factura.numeroFactura}</strong>.</p>
-        <p><strong>Concepto:</strong> ${factura.concepto}</p>
-        <p><strong>Total:</strong> ${factura.total.toFixed(2)}€</p>
-        <p><strong>Vencimiento:</strong> ${new Date(factura.vencimiento).toLocaleDateString('es-ES')}</p>
-        ${factura.notas ? `<p><strong>Notas:</strong> ${factura.notas}</p>` : ''}
-        <p>Gracias por tu confianza.</p>
-      `,
+      text: `Estimado/a ${factura.datosReceptor.nombre},\n\nLe hacemos entrega de la factura ${factura.numeroFactura}.\n\nConcepto: ${factura.concepto}\nTotal: ${factura.total.toFixed(2)}€\nVencimiento: ${new Date(factura.vencimiento).toLocaleDateString('es-ES')}\n${factura.notas ? `Notas: ${factura.notas}\n` : ''}\nEnlace de descarga de la factura (PDF):\n${pdfUrl}\n\nAtentamente,\nEl equipo de Facturación.`,
+      facturaPagada: factura.estado === 'pagada',
       attachments: [{
+        file_name: `Factura-${factura.numeroFactura}.pdf`,
+        file_url: pdfUrl,
         filename: `Factura-${factura.numeroFactura}.pdf`,
-        content: pdfBuffer
+        data: base64Data
       }]
     });
 

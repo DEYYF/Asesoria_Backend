@@ -2,7 +2,6 @@
 require("dotenv").config();
 
 const mongoose = require("mongoose");
-const transporter = require("../services/mailer");
 
 // MODELOS (ajusta rutas si hace falta)
 const Cliente = require("../models/Cliente");
@@ -29,16 +28,46 @@ function dateISOInTZ(daysOffset = 0, tz = TZ) {
 
 const getClienteEmail = (cli) => cli?.email || cli?.correo || cli?.destinatario || null;
 
-async function sendEmail({ to, subject, text, html, attachments }) {
-  const from = process.env.SMTP_FROM || process.env.SMTP_USER;
-  if (!from) throw new Error("Falta remitente (SMTP_FROM o SMTP_USER)");
-  return transporter.sendMail({
-    from,
-    to,
-    subject,
-    ...(html ? { html } : { text: text || "" }),
-    ...(attachments ? { attachments } : {}),
+const MAKE_WEBHOOK_URL = process.env.MAKE_WEBHOOK_URL || "https://hook.eu1.make.com/9z6ekshg3xvapvxvi87qiipzdz5c7e6g";
+
+/**
+ * Envía email a través del webhook de Make.com
+ * @param {Object} opts
+ * @param {string} opts.to - Destinatario
+ * @param {string} opts.subject - Asunto
+ * @param {string} [opts.text] - Mensaje en texto plano
+ * @param {string} [opts.html] - Mensaje en HTML
+ * @param {Array}  [opts.attachments] - Adjuntos [{file_name, file_url}]
+ * @param {boolean} [opts.facturaPagada] - true solo si la factura asociada está pagada
+ */
+async function sendEmail({ to, subject, text, html, attachments, facturaPagada }) {
+  const payload = {
+    Destinatario: to,
+    Asunto: subject,
+    Mensaje: html || text || "",
+    Formulario: facturaPagada === true,
+    Adjuntos: (attachments || [])
+      .map(a => ({
+        file_name: a.file_name || a.filename || "adjunto",
+        file_url: a.file_url || "",
+        filename: a.filename || a.file_name || "adjunto",
+        data: a.data || a.content || ""
+      }))
+  };
+
+  const response = await fetch(MAKE_WEBHOOK_URL, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
   });
+
+  if (!response.ok) {
+    const errText = await response.text().catch(() => "");
+    throw new Error(`[notifier] Webhook error (${response.status}): ${errText}`);
+  }
+
+  console.log(`[notifier] Email enviado via Make.com a ${to} (Formulario: ${payload.Formulario})`);
+  return { messageId: `make-${Date.now()}`, webhookStatus: response.status };
 }
 
 // ————— Recordatorios genéricos por offset —————

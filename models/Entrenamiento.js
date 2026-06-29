@@ -27,7 +27,7 @@ const ItemSchema = new Schema(
 const DiaSchema = new Schema(
   {
     nombre: { type: String, required: true, trim: true }, // Lunes, Día 1, etc.
-    diaSemana: { type: String, trim: true }, // Lunes, Martes, etc.
+    diaSemana: { type: String, enum: ['Lunes','Martes','Miércoles','Jueves','Viernes','Sábado','Domingo'] }, // etiqueta opcional día de la semana
     items: { type: [ItemSchema], default: [] },
   },
   { _id: true }
@@ -45,12 +45,9 @@ const EntrenamientoSchema = new Schema(
   {
     asesorid: { type: Schema.Types.ObjectId, ref: 'Usuario', required: true },
     clienteId: { type: Schema.Types.ObjectId, ref: 'Cliente' },
-    diaSemana: { type: String, enum: ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"], default: null },
 
-
-    diasProgramados: { type: [String], enum: ["Lunes","Martes","Miércoles","Jueves","Viernes","Sábado","Domingo"], default: [] },
+    titulo: { type: String, required: true, trim: true },
     objetivo: { type: String, trim: true },
-    fechaInicio: { type: Date, default: Date.now },
 
     semanas: { type: [SemanaSchema], default: [] },
 
