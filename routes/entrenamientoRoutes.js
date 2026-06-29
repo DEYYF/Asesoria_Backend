@@ -45,7 +45,6 @@ router.get("/", async (req, res) => {
       createdAt: 1,
       updatedAt: 1,
       semanas: { $slice: 1 }, // no enviar todo (solo para no pesar)
-      diasProgramados: 1,
     })
       .sort({ updatedAt: -1, createdAt: -1 })
       .lean();
@@ -498,23 +497,6 @@ router.delete("/registros/cliente/:clienteId/all", async (req, res) => {
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
-});
-
-// GET /entrenamientos/calendar/:clienteId - grouped by weekday
-router.get('/calendar/:clienteId', async (req, res) => {
-  try {
-    const { clienteId } = req.params;
-    if (!mongoose.isValidObjectId(clienteId)) {
-      return res.status(400).json({ error: 'clienteId inválido' });
-    }
-    // Return trainings with title and scheduled weekdays
-    const trainings = await Entrenamiento.find({ clienteId: new mongoose.Types.ObjectId(clienteId) })
-      .select('titulo diasProgramados')
-      .lean();
-    res.json(trainings);
-  } catch (error) {
-    res.status(500).json({ error: error.message });
-  }
 });
 
 module.exports = router;

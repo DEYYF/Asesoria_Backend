@@ -137,12 +137,15 @@ async function executeAction(action, { cliente, advisorId, data }) {
     }
 
     await Task.create({
-       asesorId: advisorId,
-       clienteId: cliente?._id,
-       titulo: content, // Task title from content
-       descripcion: `Tarea creada automáticamente por regla de automatización.`,
-       fechaVencimiento: dueDate,
-       estado: 'PENDIENTE'
+       assigneeId: advisorId,
+       clientId: cliente?._id,
+       title: content, // Task title from content
+       notes: `Tarea creada automáticamente por regla de automatización.`,
+       dueAt: dueDate,
+       status: 'todo',
+       priority: 'medium',
+       tags: [{ label: 'Automático', color: 'blue' }],
+       statusChangedAt: new Date()
     });
     console.log(`[Automation] Task created: ${content}`);
 
@@ -204,11 +207,14 @@ async function executeAction(action, { cliente, advisorId, data }) {
           const Task = require('../models/Tarea');
           const suggestionText = suggestions.map(s => `• ${s.ejercicio}: ${s.suggestion} (${s.reason})`).join('\n');
           await Task.create({
-            asesorId: advisorId,
-            clienteId: cliente._id,
-            titulo: `Sugerencia de Progresión: ${cliente.nombre}`,
-            descripcion: `Basado en el último entrenamiento:\n${suggestionText}`,
-            estado: 'PENDIENTE'
+            assigneeId: advisorId,
+            clientId: cliente._id,
+            title: `Sugerencia de Progresión: ${cliente.nombre}`,
+            notes: `Basado en el último entrenamiento:\n${suggestionText}`,
+            status: 'todo',
+            priority: 'high',
+            tags: [{ label: 'IA Sugerencia', color: 'purple' }],
+            statusChangedAt: new Date()
           });
           console.log(`[Intelligence] Progression suggestions created for ${cliente.nombre}`);
         }
@@ -472,6 +478,43 @@ async function checkDailyTriggers(today) {
                  if (dob.getDate() === today.getDate() && dob.getMonth() === today.getMonth()) {
                      shouldTrigger = true;
                  }
+             }
+
+             // --- SYSTEMIC TASKS (NO AUTOMATION RULE REQUIRED) ---
+             if (client.fechaFin) {
+                const expiry = new Date(client.fechaFin);
+                const t = new Date(today); t.setHours(0,0,0,0);
+                const e = new Date(expiry); e.setHours(0,0,0,0);
+                
+                const diffTime = e.getTime() - t.getTime();
+                const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+                // 7 Days before expiration
+                if (diffDays === 7) {
+                    const Tarea = require('../models/Tarea');
+                    const { createTarea } = require('./tareas');
+                    
+                    // Check if task already exists for this expiration to avoid duplicates 
+                    // (though checkDailyTriggers usually runs once)
+                    const exists = await Tarea.findOne({
+                        clientId: client._id,
+                        title: { $regex: 'Llamada/Mensaje Renovación' },
+                        createdAt: { $gte: new Date(Date.now() - 24 * 60 * 60 * 1000) }
+                    });
+
+                    if (!exists) {
+                        await createTarea({ user: { _id: client.asesorId } }, {
+                            assigneeId: client.asesorId,
+                            clientId: client._id,
+                            title: `Llamada/Mensaje Renovación: ${client.nombre}`,
+                            notes: `El plan expira en 7 días (${e.toLocaleDateString('es-ES')}). Gestionar renovación.`,
+                            priority: 'urgent',
+                            tags: [{ label: 'Renovación', color: 'red' }],
+                            origin: 'manual'
+                        });
+                        console.log(`[Automation] Renewal task created for ${client.nombre} (7 days before)`);
+                    }
+                }
              }
 
              // Rule: PLAN_EXPIRED

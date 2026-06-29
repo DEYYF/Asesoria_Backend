@@ -167,57 +167,6 @@ async function calculateComidaMacros(comida) {
  * @returns {Object} Updated diet data with calculated macros
  */
 async function calculateDietMacros(dietaData) {
-  if (dietaData.tipoPlan === "calendario" && Array.isArray(dietaData.diasCalendario)) {
-    const calculatedDays = await Promise.all(
-      dietaData.diasCalendario.map(async (dia) => {
-        if (Array.isArray(dia.comidas)) {
-          const comidasWithMacros = await Promise.all(
-            dia.comidas.map(async (comida) => {
-              const totales = await calculateComidaMacros(comida);
-              comida.totales = totales;
-              return comida;
-            })
-          );
-          dia.comidas = comidasWithMacros;
-
-          // Day total is the sum of its comidas
-          dia.totales = comidasWithMacros.reduce((acc, comida) => ({
-            kcal: acc.kcal + (comida.totales?.kcal || 0),
-            p: acc.p + (comida.totales?.p || 0),
-            c: acc.c + (comida.totales?.c || 0),
-            g: acc.g + (comida.totales?.g || 0),
-          }), { kcal: 0, p: 0, c: 0, g: 0 });
-        } else {
-          dia.totales = { kcal: 0, p: 0, c: 0, g: 0 };
-        }
-        return dia;
-      })
-    );
-    dietaData.diasCalendario = calculatedDays;
-
-    // Average across all days for diet-level macros
-    const count = calculatedDays.length;
-    if (count > 0) {
-      const sum = calculatedDays.reduce((acc, dia) => ({
-        kcal: acc.kcal + (dia.totales?.kcal || 0),
-        p: acc.p + (dia.totales?.p || 0),
-        c: acc.c + (dia.totales?.c || 0),
-        g: acc.g + (dia.totales?.g || 0),
-      }), { kcal: 0, p: 0, c: 0, g: 0 });
-
-      dietaData.macros = {
-        kcal: Number((sum.kcal / count).toFixed(2)),
-        p: Number((sum.p / count).toFixed(2)),
-        c: Number((sum.c / count).toFixed(2)),
-        g: Number((sum.g / count).toFixed(2)),
-      };
-    } else {
-      dietaData.macros = { kcal: 0, p: 0, c: 0, g: 0 };
-    }
-
-    return dietaData;
-  }
-
   if (!Array.isArray(dietaData.comidas) || dietaData.comidas.length === 0) {
     return dietaData;
   }

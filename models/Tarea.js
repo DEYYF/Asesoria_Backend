@@ -6,6 +6,21 @@ const TareaSchema = new mongoose.Schema(
     title:   { type: String, required: true, trim: true },
     notes:   { type: String, default: "" },
     status:  { type: String, default: "todo", index: true },
+    priority: { type: String, enum: ['low', 'medium', 'high', 'urgent'], default: 'medium' },
+    subtasks: [{
+      title: { type: String, required: true },
+      isCompleted: { type: Boolean, default: false }
+    }],
+    tags: [{
+      label: { type: String, required: true },
+      color: { type: String, default: 'blue' }
+    }],
+    attachments: [{
+      url: String,
+      name: String,
+      type: String
+    }],
+    statusChangedAt: { type: Date, default: Date.now },
     dueAt:   { type: Date },
 
     // relaciones / metadatos

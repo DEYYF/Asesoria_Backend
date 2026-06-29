@@ -3,6 +3,7 @@ const Tarifa = require("../models/Tarifa");
 const Extra = require("../models/Extra");
 const Movimiento = require("../models/Movimiento");
 const { triggerAutomations } = require("../utils/automationManager");
+const { createTarea } = require('../utils/tareas');
 
 exports.crearPresupuesto = async (req, res) => {
   try {
@@ -104,6 +105,19 @@ exports.crearPresupuesto = async (req, res) => {
         clienteId: clienteId || undefined,
         presupuestoId: presupuesto._id,
         Tipo: "FINANZAS"
+      });
+    }
+
+    // ✅ Crear Tarea Automática: Nueva Planificación (si está pagado)
+    if (presupuesto.estado === "pagado" && clienteId) {
+      await createTarea(req, {
+        assigneeId: usuarioId,
+        clientId: clienteId,
+        title: `Nueva planificación: ${nombreCliente}`,
+        notes: `Presupuesto pagado. Iniciar preparación de dieta y entrenamiento.`,
+        priority: 'high',
+        tags: [{ label: 'Pago', color: 'green' }],
+        origin: 'manual'
       });
     }
 
@@ -252,6 +266,17 @@ exports.actualizarPresupuesto = async (req, res) => {
             budgetId: presupuesto._id,
             email: presupuesto.emailCliente
           });
+
+          // ✅ Crear Tarea Automática: Seguimiento de Rechazo
+          await createTarea(req, {
+            assigneeId: presupuesto.usuarioId,
+            clientId: presupuesto.clienteId,
+            title: `Seguimiento Rechazo: ${presupuesto.nombreCliente}`,
+            notes: `Presupuesto rechazado. Contactar para entender motivos y ofrecer alternativas.`,
+            priority: 'low',
+            tags: [{ label: 'Ventas', color: 'red' }],
+            origin: 'manual'
+          });
       } else if (estado === "aceptado") {
           // AUTO-CREATE INVOICE FROM BUDGET
           if (!presupuesto.facturaId) {
@@ -394,6 +419,17 @@ exports.actualizarPresupuesto = async (req, res) => {
             clientId: presupuesto.clienteId,
             budgetId: presupuesto._id,
             email: presupuesto.emailCliente
+          });
+
+          // ✅ Crear Tarea Automática: Nueva Planificación (al aceptar/pagar)
+          await createTarea(req, {
+            assigneeId: presupuesto.usuarioId,
+            clientId: presupuesto.clienteId,
+            title: `Preparar Plan: ${presupuesto.nombreCliente}`,
+            notes: `El cliente ha aceptado el presupuesto (${presupuesto.estado}). Empezar con la planificación.`,
+            priority: 'high',
+            tags: [{ label: 'Planificación', color: 'purple' }],
+            origin: 'manual'
           });
       }
 
