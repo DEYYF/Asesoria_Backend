@@ -1,4 +1,4 @@
-// validators/dietaSchemas.js
+
 const { z } = require("zod");
 
 const macrosZ = z.object({
@@ -18,16 +18,16 @@ const combinacionItemZ = z.object({
 
 const opcionZ = z.object({
   tipo: z.enum(["ingrediente", "receta", "combinacion"]),
-  // ingrediente
+
   ingredienteId: z.string().optional(),
   nombre: z.string().optional(),
   gramos: z.number().optional(),
   unidades: z.number().optional(),
-  // receta
+
   recetaId: z.string().optional(),
-  // combinacion
-  items: z.array(combinacionItemZ).optional(),
-  // totales de la opción
+
+  items: z.array(combinacionItemZ).default([]),
+
   macros: macrosZ.partial().default({}),
   notas: z.string().optional(),
 });
@@ -40,19 +40,68 @@ const comidaZ = z.object({
   notas: z.string().optional(),
 });
 
+const diaSemanaZ = z.object({
+  dia: z.enum([
+    "lunes",
+    "martes",
+    "miercoles",
+    "miércoles",
+    "jueves",
+    "viernes",
+    "sabado",
+    "sábado",
+    "domingo",
+    "Lunes",
+    "Martes",
+    "Miercoles",
+    "Miércoles",
+    "Jueves",
+    "Viernes",
+    "Sabado",
+    "Sábado",
+    "Domingo",
+  ]),
+  comidas: z.array(comidaZ).default([]),
+  notas: z.string().optional(),
+  totales: macrosZ.partial().default({}),
+});
+
 const baseDietaZ = z.object({
   clienteId: z.string().min(1),
   asesorId: z.string().optional(),
+
   nombre: z.string().optional(),
-  objetivo: z.enum(["ganancia", "perdida", "definicion", "salud", "rendimiento"]).optional(),
-  estado: z.enum(["borrador", "publicada", "archivada"]).optional(),
+
+  objetivo: z
+    .enum([
+      "ganancia",
+      "perdida",
+      "definicion",
+      "salud",
+      "rendimiento",
+    ])
+    .optional(),
+
+  estado: z
+    .enum(["borrador", "publicada", "archivada"])
+    .optional(),
+
+  tipo: z
+    .enum(["opciones", "calendario"])
+    .default("opciones"),
+
   macros: macrosZ.partial().default({}),
+
   comidas: z.array(comidaZ).default([]),
+
+  diasSemana: z.array(diaSemanaZ).default([]),
+
   notas: z.string().optional(),
 });
 
 const createDietaSchema = baseDietaZ;
-const updateDietaSchema = baseDietaZ; // el PUT aplicará como nueva revisión
+
+const updateDietaSchema = baseDietaZ;
 
 const createRevisionSchema = z.object({
   changes: z.record(z.any()).optional(),
