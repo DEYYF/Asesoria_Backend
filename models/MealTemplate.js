@@ -69,6 +69,12 @@ const MealTemplateSchema = new Schema(
       default: 'General',
       trim: true,
     },
+    scope: {
+      type: String,
+      enum: ['global', 'personal'],
+      default: 'global',
+      index: true,
+    },
     comida: {
       type: ComidaSchema,
       required: true,
@@ -77,6 +83,6 @@ const MealTemplateSchema = new Schema(
   { timestamps: true }
 );
 
-MealTemplateSchema.index({ asesorId: 1, nombre: 1 });
+MealTemplateSchema.index({ asesorId: 1, scope: 1, nombre: 1 });
 
 module.exports = model('MealTemplate', MealTemplateSchema);

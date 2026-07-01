@@ -1,9 +1,17 @@
 const MealTemplate = require('../models/MealTemplate');
 
+function getAsesorId(req) {
+  return req.user.id || req.user._id;
+}
+
 exports.list = async (req, res) => {
   try {
-    const asesorId = req.user.id || req.user._id;
-    const templates = await MealTemplate.find({ asesorId }).sort({ updatedAt: -1 }).lean();
+    const asesorId = getAsesorId(req);
+    const { scope } = req.query;
+    const filter = { asesorId };
+    if (scope) filter.scope = scope;
+
+    const templates = await MealTemplate.find(filter).sort({ categoria: 1, nombre: 1 }).lean();
     return res.json(templates);
   } catch (error) {
     console.error('Error listing meal templates:', error);
@@ -13,13 +21,14 @@ exports.list = async (req, res) => {
 
 exports.create = async (req, res) => {
   try {
-    const asesorId = req.user.id || req.user._id;
+    const asesorId = getAsesorId(req);
     const payload = req.validatedBody || req.body;
 
     const template = await MealTemplate.create({
       asesorId,
       nombre: payload.nombre,
       categoria: payload.categoria || 'General',
+      scope: payload.scope || 'global',
       comida: payload.comida,
     });
 
@@ -32,13 +41,19 @@ exports.create = async (req, res) => {
 
 exports.update = async (req, res) => {
   try {
-    const asesorId = req.user.id || req.user._id;
+    const asesorId = getAsesorId(req);
     const { id } = req.params;
     const payload = req.validatedBody || req.body;
 
+    const allowed = {};
+    if (payload.nombre !== undefined) allowed.nombre = payload.nombre;
+    if (payload.categoria !== undefined) allowed.categoria = payload.categoria || 'General';
+    if (payload.scope !== undefined) allowed.scope = payload.scope;
+    if (payload.comida !== undefined) allowed.comida = payload.comida;
+
     const template = await MealTemplate.findOneAndUpdate(
       { _id: id, asesorId },
-      { $set: payload },
+      { $set: allowed },
       { new: true, runValidators: true }
     );
 
@@ -52,7 +67,7 @@ exports.update = async (req, res) => {
 
 exports.remove = async (req, res) => {
   try {
-    const asesorId = req.user.id || req.user._id;
+    const asesorId = getAsesorId(req);
     const { id } = req.params;
     const result = await MealTemplate.deleteOne({ _id: id, asesorId });
     if (result.deletedCount === 0) return res.status(404).json({ error: 'Plantilla no encontrada' });

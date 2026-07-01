@@ -339,10 +339,10 @@ exports.actualizarPresupuesto = async (req, res) => {
                 }
               }
 
-              // Apply global discount if exists
+              // El descuento del presupuesto se traslada como descuento global de factura.
+              // El modelo Factura recalcula siempre: descuento primero y después IVA,
+              // evitando cobrar IVA sobre importes descontados.
               const descuentoGlobal = presupuesto.descuento || 0;
-              const descuentoImporte = subtotal * (descuentoGlobal / 100);
-              const totalFactura = subtotal + totalIVA - descuentoImporte;
 
               // Validate REQUIRED fields for Factura model
               if (!presupuesto.clienteId) {
@@ -359,10 +359,7 @@ exports.actualizarPresupuesto = async (req, res) => {
                 vencimiento: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
                 concepto: `Presupuesto Aceptado: ${presupuesto.tarifaId?.nombre || 'General'}`,
                 items: invoiceItems,
-                subtotal: subtotal,
-                totalIVA: totalIVA,
                 descuentoGlobal: descuentoGlobal,
-                total: totalFactura,
                 metodoPago: 'transferencia',
                 presupuestoId: presupuesto._id,
                 datosEmisor: {

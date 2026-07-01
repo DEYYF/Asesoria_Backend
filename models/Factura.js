@@ -219,26 +219,55 @@ FacturaSchema.index({ clienteId: 1, fecha: -1 });
 FacturaSchema.index({ estado: 1, vencimiento: 1 });
 
 // Método para calcular totales automáticamente
+// Orden correcto de cálculo:
+// 1) Base de cada línea = cantidad × precioUnitario
+// 2) Descuento de línea sobre su propia base
+// 3) Subtotal = suma de bases de línea ya descontadas
+// 4) Descuento global sobre el subtotal
+// 5) IVA sobre la base imponible final, ya con todos los descuentos aplicados
+// 6) Total = base imponible + IVA
 FacturaSchema.methods.calcularTotales = function() {
+  const round2 = (value) => Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
   let subtotal = 0;
-  let totalIVA = 0;
 
   this.items.forEach(item => {
-    const baseItem = item.cantidad * item.precioUnitario;
-    const descuentoItem = baseItem * (item.descuento / 100);
-    const baseConDescuento = baseItem - descuentoItem;
-    const ivaItem = baseConDescuento * (item.iva / 100);
-    
-    item.total = baseConDescuento + ivaItem;
+    const cantidad = Number(item.cantidad || 0);
+    const precioUnitario = Number(item.precioUnitario || 0);
+    const descuentoLinea = Math.min(Math.max(Number(item.descuento || 0), 0), 100);
+    const ivaLinea = Number(item.iva || 0);
+
+    const baseItem = cantidad * precioUnitario;
+    const descuentoItem = baseItem * (descuentoLinea / 100);
+    const baseConDescuento = Math.max(0, baseItem - descuentoItem);
+    const ivaItem = baseConDescuento * (ivaLinea / 100);
+
+    item.descuento = descuentoLinea;
+    item.total = round2(baseConDescuento + ivaItem);
     subtotal += baseConDescuento;
-    totalIVA += ivaItem;
   });
 
+  subtotal = round2(subtotal);
+  const descuentoGlobalPorcentaje = Math.min(Math.max(Number(this.descuentoGlobal || 0), 0), 100);
+  const descuentoGlobalImporte = round2(subtotal * (descuentoGlobalPorcentaje / 100));
+  const baseImponible = round2(Math.max(0, subtotal - descuentoGlobalImporte));
+
+  // Si todos los conceptos tienen el mismo IVA, aplicamos el descuento global antes de ese IVA.
+  // Si hubiera IVAs mixtos, se prorratea el descuento por línea para no cobrar IVA sobre descuento.
+  let totalIVA = 0;
+  if (subtotal > 0) {
+    this.items.forEach(item => {
+      const baseItem = Number(item.cantidad || 0) * Number(item.precioUnitario || 0);
+      const baseConDescuentoLinea = Math.max(0, baseItem - (baseItem * (Number(item.descuento || 0) / 100)));
+      const peso = baseConDescuentoLinea / subtotal;
+      const baseLineaTrasGlobal = baseConDescuentoLinea - (descuentoGlobalImporte * peso);
+      totalIVA += Math.max(0, baseLineaTrasGlobal) * (Number(item.iva || 0) / 100);
+    });
+  }
+
+  this.descuentoGlobal = descuentoGlobalPorcentaje;
   this.subtotal = subtotal;
-  this.totalIVA = totalIVA;
-  
-  const descuentoGlobalImporte = subtotal * (this.descuentoGlobal / 100);
-  this.total = subtotal + totalIVA - descuentoGlobalImporte;
+  this.totalIVA = round2(totalIVA);
+  this.total = round2(baseImponible + this.totalIVA);
 };
 
 // Middleware para calcular totales antes de guardar

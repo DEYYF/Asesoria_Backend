@@ -38,6 +38,7 @@ const comidaZ = z.object({
 const createMealTemplateSchema = z.object({
   nombre: z.string().min(1).max(120),
   categoria: z.string().max(80).optional(),
+  scope: z.enum(['global', 'personal']).optional(),
   comida: comidaZ,
 });
 

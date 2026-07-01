@@ -163,26 +163,35 @@ async function generateInvoicePDF(factura) {
       yPos += 20;
       const totalesX = 380;
 
+      const subtotalFactura = Number(factura.subtotal || 0);
+      const descuentoImporte = subtotalFactura * (Number(factura.descuentoGlobal || 0) / 100);
+      const baseImponible = Math.max(0, subtotalFactura - descuentoImporte);
+
       doc.fontSize(9)
          .fillColor(grayColor)
          .text('Subtotal:', totalesX, yPos)
          .fillColor(darkColor)
-         .text(`${factura.subtotal.toFixed(2)}€`, totalesX + 80, yPos, { align: 'right', width: 85 });
+         .text(`${subtotalFactura.toFixed(2)}€`, totalesX + 80, yPos, { align: 'right', width: 85 });
+
+      if (factura.descuentoGlobal > 0) {
+        yPos += 15;
+        doc.fillColor(grayColor)
+           .text(`Descuento (${factura.descuentoGlobal}%):`, totalesX, yPos)
+           .fillColor('#ef4444')
+           .text(`-${descuentoImporte.toFixed(2)}€`, totalesX + 80, yPos, { align: 'right', width: 85 });
+
+        yPos += 15;
+        doc.fillColor(grayColor)
+           .text('Base imponible:', totalesX, yPos)
+           .fillColor(darkColor)
+           .text(`${baseImponible.toFixed(2)}€`, totalesX + 80, yPos, { align: 'right', width: 85 });
+      }
 
       yPos += 15;
       doc.fillColor(grayColor)
          .text('IVA:', totalesX, yPos)
          .fillColor(darkColor)
          .text(`${factura.totalIVA.toFixed(2)}€`, totalesX + 80, yPos, { align: 'right', width: 85 });
-
-      if (factura.descuentoGlobal > 0) {
-        yPos += 15;
-        const descuentoImporte = factura.subtotal * (factura.descuentoGlobal / 100);
-        doc.fillColor(grayColor)
-           .text(`Descuento (${factura.descuentoGlobal}%):`, totalesX, yPos)
-           .fillColor('#ef4444')
-           .text(`-${descuentoImporte.toFixed(2)}€`, totalesX + 80, yPos, { align: 'right', width: 85 });
-      }
 
       yPos += 20;
       doc.rect(totalesX, yPos - 5, 165, 30)
