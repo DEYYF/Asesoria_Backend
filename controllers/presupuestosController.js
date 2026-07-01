@@ -194,8 +194,25 @@ exports.actualizarPresupuesto = async (req, res) => {
       }
     }
     
-    // Si actualizamos estado (con o sin descuento), sincronizar cliente
+    // Si actualizamos estado (con o sin descuento), sincronizar cliente.
+    // Protección importante: un borrador no puede pasar a aceptado/pagado sin
+    // estar vinculado a un cliente. Antes se permitía y aparecía en Registrados
+    // agrupado como "Desconocido"; después el frontend creaba/vinculaba el
+    // cliente y podían verse entradas duplicadas/confusas.
     if (estado || req.body.clienteId) {
+       const presupuestoActual = await Presupuesto.findById(req.params.id);
+       if (!presupuestoActual) {
+        return res.status(404).json({ message: "Presupuesto no encontrado" });
+       }
+
+       const clienteVinculado = req.body.clienteId || presupuestoActual.clienteId;
+       if ((estado === "aceptado" || estado === "pagado") && !clienteVinculado) {
+        return res.status(400).json({
+          message: "No se puede aceptar un presupuesto borrador sin vincularlo antes a un cliente.",
+          code: "BUDGET_ACCEPT_REQUIRES_CLIENT",
+        });
+       }
+
        const updateData = { ...req.body };
        
        const presupuesto = await Presupuesto.findByIdAndUpdate(
