@@ -89,6 +89,8 @@ app.use("/api/presupuestos", require("./routes/presupuestos"));
 app.use('/api/chat', require('./routes/chatRoutes'));
 app.use('/api/templates', require('./routes/templateRoutes'));
 app.use('/api/meal-templates', require('./routes/mealTemplateRoutes'));
+// Alias sin /api por si alguna build del frontend usa BASE_URL sin el prefijo /api.
+app.use('/meal-templates', require('./routes/mealTemplateRoutes'));
 app.use('/api/automations', require('./routes/automationRoutes'));
 app.use('/api/finanzas', require('./routes/finanzasRoutes'));
 app.use('/api/facturas', require('./routes/facturaRoutes'));
