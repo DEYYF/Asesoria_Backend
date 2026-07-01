@@ -8,6 +8,7 @@ const {
   updateDietaSchema,
   createRevisionSchema,
   restoreRevisionSchema,
+  copyDaySchema,
 } = require("../validators/dietaSchemas");
 const ctrl = require("../controllers/dietaController");
 
@@ -31,6 +32,9 @@ router.get("/cliente/:clienteId/ultima", auth, ctrl.getLastDietForClient);
 
 // Guardar cambios => crea nueva revisión vigente (retrocompatible con tu editor)
 router.put("/:id", auth, validate(updateDietaSchema), ctrl.putAsNewRevision);
+
+// Copiar un día de una dieta calendario a uno o varios días
+router.post("/:id/copy-day", auth, validate(copyDaySchema), ctrl.copyDay);
 
 // Borrar (soft por defecto, ?hard=1 para borrado real)
 router.delete("/:id", auth, ctrl.remove);

@@ -77,6 +77,17 @@ exports.getById = async (req, res) => {
         select: "nombre macros",
       },
     })
+    .populate("comidas.opciones.ingredienteId", "nombre tipo kcal proteinas carbohidratos grasas")
+    .populate("comidas.opciones.items.ingredienteId", "nombre tipo kcal proteinas carbohidratos grasas")
+    .populate({
+      path: "diasSemana.comidas.opciones.recetaId",
+      populate: {
+        path: "ingredientes.ingrediente",
+        select: "nombre macros tipo kcal proteinas carbohidratos grasas",
+      },
+    })
+    .populate("diasSemana.comidas.opciones.ingredienteId", "nombre tipo kcal proteinas carbohidratos grasas")
+    .populate("diasSemana.comidas.opciones.items.ingredienteId", "nombre tipo kcal proteinas carbohidratos grasas")
     .lean();
   if (!doc) return res.status(404).json({ error: "Dieta no encontrada" });
   return res.json(doc);
@@ -144,6 +155,115 @@ exports.putAsNewRevision = async (req, res) => {
     return res.status(200).json(nueva);
   } catch (e) {
     console.error("Error in putAsNewRevision:", e);
+    await session.abortTransaction();
+    session.endSession();
+    return res.status(400).json({ error: e.message });
+  }
+};
+
+
+function normalizeDayName(value = '') {
+  return String(value)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+}
+
+function clonePlain(value) {
+  return JSON.parse(JSON.stringify(value || null));
+}
+
+/** POST /api/dietas/:id/copy-day */
+exports.copyDay = async (req, res) => {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const { id } = req.params;
+    const { from, to, note } = req.validatedBody || req.body;
+
+    const base = await Dieta.findById(id).session(session);
+    if (!base) throw new Error('Dieta no encontrada');
+    if (base.tipo !== 'calendario') throw new Error('Solo se pueden copiar días en dietas tipo calendario');
+
+    const sourceName = normalizeDayName(from);
+    const targetNames = [...new Set((to || []).map(normalizeDayName))].filter(Boolean);
+    if (!targetNames.length) throw new Error('Debes indicar al menos un día destino');
+
+    const baseObject = base.toObject();
+    const diasSemana = Array.isArray(baseObject.diasSemana) ? baseObject.diasSemana : [];
+    const sourceDay = diasSemana.find((dia) => normalizeDayName(dia.dia) === sourceName);
+    if (!sourceDay) throw new Error('Día origen no encontrado');
+
+    const sourceMeals = clonePlain(sourceDay.comidas || []);
+
+    const nextDays = diasSemana.map((dia) => {
+      if (!targetNames.includes(normalizeDayName(dia.dia))) return dia;
+      return {
+        ...dia,
+        comidas: clonePlain(sourceMeals),
+        notas: dia.notas || '',
+      };
+    });
+
+    const missingTargets = targetNames.filter(
+      (target) => !nextDays.some((dia) => normalizeDayName(dia.dia) === target)
+    );
+
+    for (const target of missingTargets) {
+      nextDays.push({
+        dia: target,
+        comidas: clonePlain(sourceMeals),
+        notas: '',
+      });
+    }
+
+    const lineageId = base.lineageId || base._id;
+    const last = await Dieta.findOne({ lineageId }).sort({ rev: -1 }).session(session);
+    const nextRev = (last?.rev || 1) + 1;
+
+    const clone = base.toObject();
+    delete clone._id;
+    delete clone.createdAt;
+    delete clone.updatedAt;
+
+    let mergedData = {
+      ...clone,
+      tipo: 'calendario',
+      diasSemana: nextDays,
+    };
+    mergedData = await calculateDietMacros(mergedData);
+
+    const [nueva] = await Dieta.create(
+      [
+        {
+          ...mergedData,
+          lineageId,
+          rev: nextRev,
+          isCurrent: true,
+          note: note || `Copiado ${from} a ${targetNames.join(', ')}`,
+          restoredFrom: null,
+          supersededAt: null,
+          supersededBy: null,
+          derivedFrom: base.derivedFrom || null,
+        },
+      ],
+      { session }
+    );
+
+    await Dieta.updateMany(
+      { lineageId, _id: { $ne: nueva._id }, isCurrent: true },
+      { $set: { isCurrent: false, supersededAt: new Date(), supersededBy: nueva._id } },
+      { session }
+    );
+
+    await session.commitTransaction();
+    session.endSession();
+
+    return res.status(200).json(nueva);
+  } catch (e) {
+    console.error('Error copying diet calendar day:', e);
     await session.abortTransaction();
     session.endSession();
     return res.status(400).json({ error: e.message });
@@ -334,15 +454,32 @@ exports.getShoppingList = async (req, res) => {
       })
       .populate("comidas.opciones.ingredienteId", "nombre tipo")
       .populate("comidas.opciones.items.ingredienteId", "nombre tipo")
+      .populate({
+        path: "diasSemana.comidas.opciones.recetaId",
+        populate: {
+          path: "ingredientes.ingrediente",
+          select: "nombre tipo",
+        },
+      })
+      .populate("diasSemana.comidas.opciones.ingredienteId", "nombre tipo")
+      .populate("diasSemana.comidas.opciones.items.ingredienteId", "nombre tipo")
       .lean();
 
     if (!doc) return res.status(404).json({ error: "Dieta no encontrada" });
 
     const ingredientsMap = {};
 
-    doc.comidas.forEach(comida => {
+    const comidasParaLista = doc.tipo === 'calendario'
+      ? (doc.diasSemana || []).flatMap((dia) => dia.comidas || [])
+      : (doc.comidas || []);
+
+    const calendarMultiplier = doc.tipo === 'calendario' && periodo === 'diario'
+      ? 1 / Math.max((doc.diasSemana || []).filter((dia) => (dia.comidas || []).length > 0).length, 1)
+      : multiplier;
+
+    comidasParaLista.forEach(comida => {
       const numOptions = (comida.opciones && comida.opciones.length > 0) ? comida.opciones.length : 1;
-      const optionMultiplier = multiplier / numOptions;
+      const optionMultiplier = calendarMultiplier / numOptions;
 
       comida.opciones.forEach(opcion => {
         if (opcion.tipo === 'ingrediente') {
