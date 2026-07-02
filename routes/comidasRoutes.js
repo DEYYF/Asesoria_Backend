@@ -57,8 +57,15 @@ router.post("/ingredientes", async (req, res) => {
 });
 
 router.get("/ingredientes", async (req, res) => {
-  const ingredientes = await Ingrediente.find();
-  res.json(ingredientes);
+  try {
+    const ingredientes = await Ingrediente.find()
+      .sort({ nombre: 1 })
+      .lean();
+    res.json(ingredientes);
+  } catch (err) {
+    console.error("Error al obtener ingredientes:", err);
+    res.status(500).json({ error: "Error al obtener ingredientes" });
+  }
 });
 
 // Editar (impide renombrar a un duplicado)
@@ -157,6 +164,7 @@ router.post("/combinaciones", async (req, res) => {
 router.get("/combinaciones", async (req, res) => {
   try {
     const combinaciones = await Combinacion.find()
+      .sort({ nombre: 1 })
       .populate("ingredientes.ingrediente")
       .lean();
 
@@ -331,6 +339,7 @@ router.post("/recetas", async (req, res) => {
 router.get("/recetas", async (req, res) => {
   try {
     const recetas = await Receta.find()
+      .sort({ nombre: 1 })
       .populate("ingredientes.ingrediente")
       .lean();
 
