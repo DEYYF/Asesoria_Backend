@@ -26,7 +26,7 @@ router.get("/", async (req, res) => {
       equipo,
       nivel,
       page = 1,
-      limit = 50,
+      limit = 500,
       sort = "nombre",
       order = "asc",
     } = req.query;
@@ -46,7 +46,7 @@ router.get("/", async (req, res) => {
     const sortSpec = { [sort]: orderNum };
 
     const pageNum = Math.max(parseInt(page, 10) || 1, 1);
-    const limitNum = Math.min(Math.max(parseInt(limit, 10) || 50, 1), 200);
+    const limitNum = Math.min(Math.max(parseInt(limit, 10) || 500, 1), 5000);
     const skip = (pageNum - 1) * limitNum;
 
     const [items, total] = await Promise.all([
@@ -67,6 +67,41 @@ router.get("/", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
+
+// ✅ Obtener lista de grupos únicos
+router.get("/listas/grupos", async (req, res) => {
+  try {
+    const grupos = await Ejercicio.distinct("grupo");
+    res.json(grupos.filter(g => g).sort());
+    } catch (error) {
+    res.status(500).json({ error: error.message });
+    }
+});
+
+// ✅ Obtener lista de equipos únicos
+router.get("/listas/equipos", async (req, res) => {
+    try {
+        const equipos = await Ejercicio.distinct("equipo");
+        res.json(equipos.filter(e => e).sort());
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+    }
+);  
+
+// ✅ Obtener lista de niveles únicos
+router.get("/listas/niveles", async (req, res) => {
+    try {
+        const niveles = await Ejercicio.distinct("nivel");
+        res.json(niveles.filter(n => n).sort());
+    } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+    }
+);
+
+
+
 
 // ✅ Obtener un ejercicio por ID
 router.get("/:id", async (req, res) => {
@@ -106,40 +141,6 @@ router.delete("/:id", async (req, res) => {
     res.status(500).json({ error: error.message });
   }
 });
-
-// ✅ Obtener lista de grupos únicos
-router.get("/listas/grupos", async (req, res) => {
-  try {
-    const grupos = await Ejercicio.distinct("grupo");
-    res.json(grupos.filter(g => g).sort());
-    } catch (error) {
-    res.status(500).json({ error: error.message });
-    }
-});
-
-// ✅ Obtener lista de equipos únicos
-router.get("/listas/equipos", async (req, res) => {
-    try {
-        const equipos = await Ejercicio.distinct("equipo");
-        res.json(equipos.filter(e => e).sort());
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-    }
-);  
-
-// ✅ Obtener lista de niveles únicos
-router.get("/listas/niveles", async (req, res) => {
-    try {
-        const niveles = await Ejercicio.distinct("nivel");
-        res.json(niveles.filter(n => n).sort());
-    } catch (error) {
-        res.status(500).json({ error: error.message });
-    }
-    }
-);
-
-
 
 module.exports = router;
 
