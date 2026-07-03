@@ -3,6 +3,7 @@ const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../middlewares/authMiddleware');
 
+const mongoose = require('mongoose');
 const Tarea = require('../models/Tarea');          
 const { createTarea } = require('../utils/tareas'); 
 
@@ -69,11 +70,23 @@ router.patch('/:id', async (req, res) => {
 
 router.delete('/:id', async (req, res) => {
   try {
-    const tarea = await Tarea.findByIdAndDelete(req.params.id);
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      return res.status(400).json({ error: 'ID de tarea inválido' });
+    }
+
+    const filter = { _id: req.params.id };
+
+    // Un asesor solo puede borrar sus propias tareas. Superadmin mantiene acceso global.
+    if (req.user?.role !== 'superadmin') {
+      filter.assigneeId = req.user.id;
+    }
+
+    const tarea = await Tarea.findOneAndDelete(filter);
     if (!tarea) return res.status(404).json({ error: 'Tarea no encontrada' });
-    res.json({ ok: true });
+
+    return res.status(200).json({ ok: true, deletedId: req.params.id });
   } catch (e) {
-    res.status(400).json({ error: e.message });
+    return res.status(500).json({ error: e.message });
   }
 });
 
