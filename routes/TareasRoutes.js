@@ -55,7 +55,9 @@ router.patch('/:id', async (req, res) => {
       partial.statusChangedAt = new Date();
     }
 
-    const tarea = await Tarea.findByIdAndUpdate(req.params.id, partial, { new: true });
+    const tarea = await Tarea.findByIdAndUpdate(req.params.id, partial, { new: true })
+      .populate("createdBy", "nombre")
+      .populate("assigneeId", "nombre");
     if (!tarea) return res.status(404).json({ error: 'Tarea no encontrada' });
 
     res.json(tarea);

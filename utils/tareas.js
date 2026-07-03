@@ -44,6 +44,7 @@ async function createTarea(req, payload = {}) {
     subtasks: payload.subtasks || [],
     tags: payload.tags || [],
     attachments: payload.attachments || [],
+    comments: payload.comments || [],
     statusChangedAt: new Date(),
     metadata: { ...(payload.metadata || {}) },
   });

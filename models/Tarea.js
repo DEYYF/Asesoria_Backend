@@ -20,6 +20,11 @@ const TareaSchema = new mongoose.Schema(
       name: String,
       type: String
     }],
+    comments: [{
+      text: { type: String, required: true },
+      authorName: { type: String, default: 'Usuario' },
+      createdAt: { type: Date, default: Date.now }
+    }],
     statusChangedAt: { type: Date, default: Date.now },
     dueAt:   { type: Date },
 
