@@ -5,6 +5,171 @@ const Movimiento = require("../models/Movimiento");
 const { triggerAutomations } = require("../utils/automationManager");
 const { createTarea } = require('../utils/tareas');
 
+
+const round2 = (value) => Math.round((Number(value || 0) + Number.EPSILON) * 100) / 100;
+
+async function generarFacturaDesdePresupuesto(presupuestoId) {
+  const Factura = require('../models/Factura');
+  const Cliente = require('../models/Cliente');
+  const Usuario = require('../models/Usuario');
+
+  const presupuesto = await Presupuesto.findById(presupuestoId)
+    .populate('tarifaId')
+    .populate('extras.extraId')
+    .populate('clienteId');
+
+  if (!presupuesto) {
+    throw new Error('No se puede generar factura: presupuesto no encontrado.');
+  }
+
+  if (!presupuesto.clienteId) {
+    throw new Error('No se puede generar factura: el presupuesto no tiene cliente vinculado.');
+  }
+
+  const facturaExistente = await Factura.findOne({ presupuestoId: presupuesto._id });
+  if (facturaExistente) {
+    if (!presupuesto.facturaId || presupuesto.facturaId.toString() !== facturaExistente._id.toString()) {
+      presupuesto.facturaId = facturaExistente._id;
+      await presupuesto.save();
+    }
+    return facturaExistente;
+  }
+
+  const asesor = await Usuario.findById(presupuesto.usuarioId);
+  const cliente = presupuesto.clienteId?._id ? presupuesto.clienteId : await Cliente.findById(presupuesto.clienteId);
+
+  if (!asesor) {
+    throw new Error('No se puede generar factura: asesor no encontrado.');
+  }
+
+  if (!cliente) {
+    throw new Error('No se puede generar factura: cliente no encontrado.');
+  }
+
+  const invoiceItems = [];
+  let subtotalPresupuesto = 0;
+
+  if (presupuesto.tarifaId) {
+    const precioTarifa = Number(presupuesto.tarifaId.precio || 0);
+    subtotalPresupuesto += precioTarifa;
+    invoiceItems.push({
+      descripcion: `Servicio: ${presupuesto.tarifaId.nombre || 'Tarifa'}`,
+      cantidad: 1,
+      precioUnitario: round2(precioTarifa),
+      iva: 21,
+      descuento: 0,
+      total: round2(precioTarifa * 1.21),
+    });
+  }
+
+  if (Array.isArray(presupuesto.extras)) {
+    for (const extraItem of presupuesto.extras) {
+      const precioExtra = Number(extraItem.precioTotal ?? extraItem.precio ?? 0);
+      if (precioExtra <= 0) continue;
+      subtotalPresupuesto += precioExtra;
+      invoiceItems.push({
+        descripcion: `Extra: ${extraItem.extraId?.nombre || 'Servicio extra'}`,
+        cantidad: 1,
+        precioUnitario: round2(precioExtra),
+        iva: 21,
+        descuento: 0,
+        total: round2(precioExtra * 1.21),
+      });
+    }
+  }
+
+  if (invoiceItems.length === 0) {
+    // Último fallback: crear una línea única desde el total aceptado del presupuesto.
+    invoiceItems.push({
+      descripcion: `Presupuesto aceptado${presupuesto.nombreCliente ? ` - ${presupuesto.nombreCliente}` : ''}`,
+      cantidad: 1,
+      precioUnitario: round2(presupuesto.total || 0),
+      iva: 21,
+      descuento: 0,
+      total: round2((presupuesto.total || 0) * 1.21),
+    });
+    subtotalPresupuesto = Number(presupuesto.total || 0);
+  }
+
+  const descuentoGlobal = Math.min(Math.max(Number(presupuesto.descuento || 0), 0), 100);
+  const baseAceptada = round2(subtotalPresupuesto * (1 - descuentoGlobal / 100));
+  const totalAceptado = round2(presupuesto.total || 0);
+
+  // Si por datos antiguos el total guardado no coincide con tarifa+extras-descuento,
+  // respetamos el presupuesto aceptado como base imponible real de la factura.
+  if (Math.abs(baseAceptada - totalAceptado) > 0.02 && totalAceptado > 0) {
+    invoiceItems.length = 0;
+    invoiceItems.push({
+      descripcion: `Presupuesto aceptado: ${presupuesto.tarifaId?.nombre || presupuesto.nombreCliente || 'Servicio'}`,
+      cantidad: 1,
+      precioUnitario: totalAceptado,
+      iva: 21,
+      descuento: 0,
+      total: round2(totalAceptado * 1.21),
+    });
+  }
+
+  const numeroFactura = await Factura.generarNumeroFactura('A');
+
+  const factura = await Factura.create({
+    numeroFactura,
+    serie: 'A',
+    asesorId: presupuesto.usuarioId,
+    clienteId: cliente._id,
+    fecha: new Date(),
+    vencimiento: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+    concepto: `Presupuesto aceptado: ${presupuesto.tarifaId?.nombre || 'Servicio'}`,
+    items: invoiceItems,
+    descuentoGlobal: Math.abs(baseAceptada - totalAceptado) > 0.02 ? 0 : descuentoGlobal,
+    metodoPago: 'transferencia',
+    presupuestoId: presupuesto._id,
+    datosEmisor: {
+      nombre: asesor.nombre || asesor.email || 'Asesor',
+      nif: asesor.nif || 'PENDIENTE',
+      direccion: asesor.direccion || 'PENDIENTE',
+      codigoPostal: asesor.codigoPostal || 'PENDIENTE',
+      ciudad: asesor.ciudad || 'PENDIENTE',
+      provincia: asesor.provincia,
+      telefono: asesor.telefono,
+      email: asesor.email || 'pendiente@email.com',
+    },
+    datosReceptor: {
+      nombre: cliente.nombre || presupuesto.nombreCliente || 'Cliente',
+      nif: cliente.nif || 'PENDIENTE',
+      direccion: cliente.direccion || 'PENDIENTE',
+      codigoPostal: cliente.codigoPostal || 'PENDIENTE',
+      ciudad: cliente.ciudad || 'PENDIENTE',
+      provincia: cliente.provincia,
+    },
+    creadoPor: presupuesto.usuarioId,
+  });
+
+  presupuesto.facturaId = factura._id;
+  await presupuesto.save();
+
+  return factura;
+}
+
+
+async function limpiarPresupuestosAceptadosSinCliente({ presupuestoId, usuarioId, emailCliente, nombreCliente }) {
+  // En el flujo antiguo se podían crear/aceptar presupuestos sin cliente vinculado.
+  // Esos documentos aparecían en "Registrados" como "Desconocido". Los eliminamos
+  // cuando ya existe el presupuesto real vinculado al cliente.
+  const or = [];
+  if (emailCliente) or.push({ emailCliente });
+  if (nombreCliente) or.push({ nombreCliente });
+
+  const filtro = {
+    _id: { $ne: presupuestoId },
+    usuarioId,
+    clienteId: { $exists: false },
+    estado: { $in: ["aceptado", "pagado"] },
+    ...(or.length ? { $or: or } : {}),
+  };
+
+  await Presupuesto.deleteMany(filtro);
+}
+
 exports.crearPresupuesto = async (req, res) => {
   try {
     const { clienteId, nombreCliente, emailCliente, usuarioId, tarifaId, extras = [], fechaInicio, descuento = 0 } = req.body;
@@ -140,6 +305,13 @@ exports.obtenerPresupuestos = async (req, res) => {
     if (clienteId) filtros.clienteId = clienteId;
     if (effectiveAsesorId) filtros.usuarioId = effectiveAsesorId;
 
+    // No mostrar presupuestos aceptados/pagados sin cliente: son restos del flujo
+    // antiguo de aceptación de borradores y aparecían como "Desconocido".
+    filtros.$or = [
+      { estado: { $in: ["borrador", "pendiente", "rechazado"] } },
+      { clienteId: { $exists: true, $ne: null } },
+    ];
+
     const presupuestos = await Presupuesto.find(filtros)
       .populate("tarifaId")
       .populate("extras.extraId")
@@ -214,12 +386,21 @@ exports.actualizarPresupuesto = async (req, res) => {
        }
 
        const updateData = { ...req.body };
+       // Al vincular un borrador a cliente, no borramos nombre/email del presupuesto.
+       // Sirven como fallback hasta que el populate de clienteId llegue correctamente
+       // y evitan que se vea como "Desconocido".
+       if (updateData.nombreCliente === null || updateData.nombreCliente === '') {
+        delete updateData.nombreCliente;
+       }
+       if (updateData.emailCliente === null || updateData.emailCliente === '') {
+        delete updateData.emailCliente;
+       }
        
        const presupuesto = await Presupuesto.findByIdAndUpdate(
         req.params.id,
         updateData,
         { new: true }
-      ).populate('tarifaId').populate('extras.extraId');
+      ).populate('tarifaId').populate('extras.extraId').populate('clienteId');
 
       // ─────────────────────────────────────────────────────────────────────────────
       // Sincronización con Cliente: Si se acepta/paga, actualizar datos del cliente
@@ -248,7 +429,14 @@ exports.actualizarPresupuesto = async (req, res) => {
           presupuestoActivo: presupuesto._id,
           tarifaId: presupuesto.tarifaId ? presupuesto.tarifaId._id : undefined,
         });
-        console.log(`Cliente ${presupuesto.clienteId} actualizado por presupuesto ${presupuesto._id} (${estado})`);
+        console.log(`Cliente ${presupuesto.clienteId?._id || presupuesto.clienteId} actualizado por presupuesto ${presupuesto._id} (${estado})`);
+
+        await limpiarPresupuestosAceptadosSinCliente({
+          presupuestoId: presupuesto._id,
+          usuarioId: presupuesto.usuarioId,
+          emailCliente: presupuesto.emailCliente || presupuesto.clienteId?.email,
+          nombreCliente: presupuesto.nombreCliente || presupuesto.clienteId?.nombre,
+        });
       }
 
       // AUTOMATION: Create financial movement if PAID
@@ -262,7 +450,7 @@ exports.actualizarPresupuesto = async (req, res) => {
             monto: presupuesto.total,
             tipoMovimiento: "INGRESO",
             categoria: "Suscripción",
-            clienteId: presupuesto.clienteId,
+            clienteId: presupuesto.clienteId?._id || presupuesto.clienteId,
             presupuestoId: presupuesto._id,
             Tipo: "FINANZAS"
           });
@@ -271,7 +459,7 @@ exports.actualizarPresupuesto = async (req, res) => {
         // Automation Trigger
         await triggerAutomations('BUDGET_PAID', {
           advisorId: presupuesto.usuarioId,
-          clientId: presupuesto.clienteId,
+          clientId: presupuesto.clienteId?._id || presupuesto.clienteId,
           budgetId: presupuesto._id,
           email: presupuesto.emailCliente
         });
@@ -279,7 +467,7 @@ exports.actualizarPresupuesto = async (req, res) => {
           // Automation Trigger
           await triggerAutomations('BUDGET_REJECTED', {
             advisorId: presupuesto.usuarioId,
-            clientId: presupuesto.clienteId,
+            clientId: presupuesto.clienteId?._id || presupuesto.clienteId,
             budgetId: presupuesto._id,
             email: presupuesto.emailCliente
           });
@@ -287,7 +475,7 @@ exports.actualizarPresupuesto = async (req, res) => {
           // ✅ Crear Tarea Automática: Seguimiento de Rechazo
           await createTarea(req, {
             assigneeId: presupuesto.usuarioId,
-            clientId: presupuesto.clienteId,
+            clientId: presupuesto.clienteId?._id || presupuesto.clienteId,
             title: `Seguimiento Rechazo: ${presupuesto.nombreCliente}`,
             notes: `Presupuesto rechazado. Contactar para entender motivos y ofrecer alternativas.`,
             priority: 'low',
@@ -296,141 +484,25 @@ exports.actualizarPresupuesto = async (req, res) => {
           });
       } else if (estado === "aceptado") {
           // AUTO-CREATE INVOICE FROM BUDGET
-          if (!presupuesto.facturaId) {
-            const Factura = require('../models/Factura');
-            const Cliente = require('../models/Cliente');
-            const Usuario = require('../models/Usuario');
-            const { sendEmail } = require('../utils/notifier');
-            
-            try {
-              // Get asesor and cliente data
-              const asesor = await Usuario.findById(presupuesto.usuarioId);
-              const cliente = presupuesto.clienteId ? await Cliente.findById(presupuesto.clienteId) : null;
-              
-              // Generate invoice number
-              const numeroFactura = await Factura.generarNumeroFactura();
-              
-              // Build invoice items from budget (Tariff + Extras)
-              let subtotal = 0;
-              let totalIVA = 0;
-              const invoiceItems = [];
-              
-              // 1. Tariff Item
-              if (presupuesto.tarifaId) {
-                const precio = presupuesto.tarifaId.precio;
-                const iva = 21;
-                const totalItem = precio * (1 + iva / 100);
-                
-                invoiceItems.push({
-                  descripcion: `Servicio: ${presupuesto.tarifaId.nombre}`,
-                  cantidad: 1,
-                  precioUnitario: precio,
-                  iva: iva,
-                  descuento: 0,
-                  total: totalItem
-                });
-                
-                subtotal += precio;
-                totalIVA += (precio * iva / 100);
-              }
-              
-              // 2. Extras Items
-              if (presupuesto.extras && presupuesto.extras.length > 0) {
-                for (const extraItem of presupuesto.extras) {
-                  const extraName = extraItem.extraId ? extraItem.extraId.nombre : 'Servicio Extra';
-                  const precio = extraItem.precioTotal;
-                  const iva = 21;
-                  const totalItem = precio * (1 + iva / 100);
-
-                  invoiceItems.push({
-                    descripcion: `Extra: ${extraName}`,
-                    cantidad: 1,
-                    precioUnitario: precio,
-                    iva: iva,
-                    descuento: 0,
-                    total: totalItem
-                  });
-
-                  subtotal += precio;
-                  totalIVA += (precio * iva / 100);
-                }
-              }
-
-              // El descuento del presupuesto se traslada como descuento global de factura.
-              // El modelo Factura recalcula siempre: descuento primero y después IVA,
-              // evitando cobrar IVA sobre importes descontados.
-              const descuentoGlobal = presupuesto.descuento || 0;
-
-              // Validate REQUIRED fields for Factura model
-              if (!presupuesto.clienteId) {
-                throw new Error("No se puede generar factura: El presupuesto no tiene un cliente vinculado.");
-              }
-
-              // Create invoice from budget data
-              const factura = await Factura.create({
-                numeroFactura,
-                serie: 'A',
-                asesorId: presupuesto.usuarioId,
-                clienteId: presupuesto.clienteId,
-                fecha: new Date(),
-                vencimiento: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000), // 30 days
-                concepto: `Presupuesto Aceptado: ${presupuesto.tarifaId?.nombre || 'General'}`,
-                items: invoiceItems,
-                descuentoGlobal: descuentoGlobal,
-                metodoPago: 'transferencia',
-                presupuestoId: presupuesto._id,
-                datosEmisor: {
-                  nombre: asesor?.nombre || 'Asesor',
-                  nif: asesor?.nif || 'PENDIENTE',
-                  direccion: asesor?.direccion || 'PENDIENTE',
-                  codigoPostal: asesor?.codigoPostal || 'PENDIENTE',
-                  ciudad: asesor?.ciudad || 'PENDIENTE',
-                  provincia: asesor?.provincia,
-                  telefono: asesor?.telefono,
-                  email: asesor?.email
-                },
-                datosReceptor: {
-                  nombre: cliente?.nombre || presupuesto.nombreCliente || 'Cliente',
-                  nif: cliente?.nif || 'PENDIENTE',
-                  direccion: cliente?.direccion || 'PENDIENTE',
-                  codigoPostal: cliente?.codigoPostal || 'PENDIENTE',
-                  ciudad: cliente?.ciudad || 'PENDIENTE',
-                  provincia: cliente?.provincia
-                },
-                creadoPor: presupuesto.usuarioId
-              });
-              
-              // Link invoice to budget
-              presupuesto.facturaId = factura._id;
-              await presupuesto.save();
-              
-              console.log(`✓ Factura ${numeroFactura} auto-generada para presupuesto ${presupuesto._id}`);
-              
-              // Send email notification
-              if (cliente && cliente.email) {
-                await sendEmail({
-                  to: cliente.email,
-                  subject: 'Factura Generada - Presupuesto Aceptado',
-                  html: `
-                    <h2>Presupuesto Aceptado</h2>
-                    <p>Hola ${cliente.nombre},</p>
-                    <p>Tu presupuesto ha sido aceptado y hemos generado la factura <strong>${numeroFactura}</strong>.</p>
-                    <p><strong>Total:</strong> ${factura.total.toFixed(2)}€</p>
-                    <p><strong>Vencimiento:</strong> ${new Date(factura.vencimiento).toLocaleDateString('es-ES')}</p>
-                    <p>Gracias por tu confianza.</p>
-                  `
-                });
-              }
-            } catch (invoiceError) {
-              console.error('Error creating invoice from budget:', invoiceError);
-              // Don't fail the budget update if invoice creation fails
-            }
+          // La factura se genera desde el presupuesto ya aceptado y vinculado.
+          // Se evita duplicar facturas buscando primero por presupuestoId.
+          let facturaGenerada = null;
+          try {
+            facturaGenerada = await generarFacturaDesdePresupuesto(presupuesto._id);
+            console.log(`✓ Factura ${facturaGenerada.numeroFactura} generada/vinculada para presupuesto ${presupuesto._id}`);
+          } catch (invoiceError) {
+            console.error('Error creating invoice from accepted budget:', invoiceError);
+            return res.status(500).json({
+              message: 'El presupuesto se aceptó, pero no se pudo generar la factura automáticamente.',
+              error: invoiceError.message,
+              presupuesto,
+            });
           }
-          
+
           // Automation Trigger
           await triggerAutomations('BUDGET_ACCEPTED', {
             advisorId: presupuesto.usuarioId,
-            clientId: presupuesto.clienteId,
+            clientId: presupuesto.clienteId?._id || presupuesto.clienteId,
             budgetId: presupuesto._id,
             email: presupuesto.emailCliente
           });
@@ -438,7 +510,7 @@ exports.actualizarPresupuesto = async (req, res) => {
           // ✅ Crear Tarea Automática: Nueva Planificación (al aceptar/pagar)
           await createTarea(req, {
             assigneeId: presupuesto.usuarioId,
-            clientId: presupuesto.clienteId,
+            clientId: presupuesto.clienteId?._id || presupuesto.clienteId,
             title: `Preparar Plan: ${presupuesto.nombreCliente}`,
             notes: `El cliente ha aceptado el presupuesto (${presupuesto.estado}). Empezar con la planificación.`,
             priority: 'high',

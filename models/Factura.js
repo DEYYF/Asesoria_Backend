@@ -217,6 +217,7 @@ const FacturaSchema = new mongoose.Schema({
 FacturaSchema.index({ asesorId: 1, fecha: -1 });
 FacturaSchema.index({ clienteId: 1, fecha: -1 });
 FacturaSchema.index({ estado: 1, vencimiento: 1 });
+FacturaSchema.index({ presupuestoId: 1 }, { unique: true, sparse: true });
 
 // Método para calcular totales automáticamente
 // Orden correcto de cálculo:
